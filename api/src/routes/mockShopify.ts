@@ -18,8 +18,31 @@ const Checkout = z.object({
   discountCode: z.string().trim().toUpperCase().optional(),
 });
 
+/** Validates a code the way Shopify's checkout does; shared by the cart preview and the checkout itself. */
+async function lookupCode(shop: string, code: string): Promise<{ percent: number } | { error: string }> {
+  const r = await db.query(
+    `SELECT c.usage_count, c.disabled, d.discount_percent FROM mock_shopify_codes c
+     JOIN mock_shopify_discounts d ON d.id = c.discount_id WHERE c.shop_domain = $1 AND c.code = $2`,
+    [shop, code],
+  );
+  const row = r.rows[0];
+  if (!row) return { error: "Enter a valid discount code" };
+  if (row.disabled) return { error: "This discount code is no longer valid" };
+  if (row.usage_count > 0) return { error: "This discount code has already been used" };
+  return { percent: Number(row.discount_percent) };
+}
+
 export async function mockShopifyRoutes(app: FastifyInstance) {
   app.get("/mock-shopify/products", async () => (await shopify.shopProfile(DEMO_SHOP)).products);
+
+  // Lets the cart show the discounted total before payment, as Shopify does once a code is applied.
+  app.get("/mock-shopify/discount/:code", async (req, reply) => {
+    const { code } = req.params as { code: string };
+    const { shop } = req.query as { shop?: string };
+    const result = await lookupCode(shop ?? DEMO_SHOP, code.trim().toUpperCase());
+    if ("error" in result) return reply.code(422).send(result);
+    return { code: code.trim().toUpperCase(), percent: result.percent };
+  });
 
   app.post("/mock-shopify/checkout", async (req, reply) => {
     const input = Checkout.parse(req.body);
@@ -33,16 +56,9 @@ export async function mockShopifyRoutes(app: FastifyInstance) {
 
     let discount = 0;
     if (input.discountCode) {
-      const r = await db.query(
-        `SELECT c.usage_count, c.disabled, d.discount_percent FROM mock_shopify_codes c
-         JOIN mock_shopify_discounts d ON d.id = c.discount_id WHERE c.shop_domain = $1 AND c.code = $2`,
-        [input.shop, input.discountCode],
-      );
-      const code = r.rows[0];
-      if (!code) return reply.code(422).send({ error: "Enter a valid discount code" });
-      if (code.disabled) return reply.code(422).send({ error: "This discount code is no longer valid" });
-      if (code.usage_count > 0) return reply.code(422).send({ error: "This discount code has already been used" });
-      discount = Math.round((subtotal * code.discount_percent) / 100);
+      const code = await lookupCode(input.shop, input.discountCode);
+      if ("error" in code) return reply.code(422).send({ error: code.error });
+      discount = Math.round((subtotal * code.percent) / 100);
     }
 
     const total = subtotal - discount;

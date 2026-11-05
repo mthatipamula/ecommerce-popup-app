@@ -19,14 +19,28 @@ function Store() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => { fetch("/mock-shopify/products").then((r) => r.json()).then(setProducts); }, []);
+  // /discount/<code> on Shopify applies the code to the cart; the simulated store reads ?discount=. The cart itself
+  // starts empty: the customer adds items. Look the code up so the cart can show the discounted total before paying.
+  const [applied, setApplied] = useState<{ code: string; percent: number } | { code: string; error: string } | null>(null);
   useEffect(() => {
-    // /discount/<code> on Shopify applies the code to the cart; the simulated store reads ?discount=.
-    if (code) setCart((c) => (Object.keys(c).length ? c : { "Tempo Racer 3 Running Shoe": 1 }));
-  }, []);
+    const c = code.trim();
+    if (!c) return setApplied(null);
+    let live = true;
+    const t = setTimeout(async () => {
+      const r = await fetch(`/mock-shopify/discount/${encodeURIComponent(c)}`).catch(() => null);
+      const body = r ? await r.json().catch(() => ({})) : {};
+      if (!live) return;
+      setApplied(r?.ok ? { code: c, percent: body.percent } : { code: c, error: body.error ?? "Could not check this code" });
+    }, 300);
+    return () => { live = false; clearTimeout(t); };
+  }, [code]);
 
   const items = Object.entries(cart).filter(([, q]) => q > 0);
   const subtotal = items.reduce((s, [t, q]) => s + (products.find((p) => p.title === t)?.priceCents ?? 0) * q, 0);
   const count = items.reduce((s, [, q]) => s + q, 0);
+  const percent = applied && "percent" in applied && applied.code === code.trim() ? applied.percent : 0;
+  const discount = Math.round((subtotal * percent) / 100); // same rounding as checkout
+  const total = subtotal - discount;
 
   async function placeOrder() {
     setError(null);
@@ -84,7 +98,10 @@ function Store() {
               {items.map(([t, q]) => <div key={t} className="line"><span>{q} × {t}</span><span>{usd((products.find((p) => p.title === t)?.priceCents ?? 0) * q)}</span></div>)}
               <label>Email<input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" /></label>
               <label>Discount code<input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="RUN15-…" /></label>
-              <div className="line total"><span>Subtotal</span><span>{usd(subtotal)}</span></div>
+              {applied && "error" in applied && applied.code === code.trim() && <p className="err">{applied.error}</p>}
+              <div className="line"><span>Subtotal</span><span>{usd(subtotal)}</span></div>
+              {percent > 0 && <div className="line ok"><span>Discount {code.trim()} ({percent}% off)</span><span>−{usd(discount)}</span></div>}
+              <div className="line total"><span>Total</span><span>{usd(total)}</span></div>
               {error && <p className="err">{error}</p>}
               <button disabled={!items.length} onClick={placeOrder}>Pay now</button>
             </div>
