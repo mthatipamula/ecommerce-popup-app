@@ -1,0 +1,4 @@
+# Theme app extension: an "app embed" block the merchant switches on in the theme editor.
+# No theme code edits, and removing the app removes the popup.
+name = "Popup embed"
+type = "theme"

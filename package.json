@@ -1,0 +1,12 @@
+{
+  "name": "ecommerce-popup-app",
+  "private": true,
+  "workspaces": ["api", "web"],
+  "scripts": {
+    "build": "npm run build -w web && npm run build -w api",
+    "test": "npm test -w api",
+    "dev:api": "npm run dev -w api",
+    "dev:worker": "npm run dev:worker -w api",
+    "typecheck": "npm run typecheck -w api && npm run typecheck -w web"
+  }
+}

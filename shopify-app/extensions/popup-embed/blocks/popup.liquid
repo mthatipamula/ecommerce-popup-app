@@ -1,0 +1,23 @@
+{% comment %}
+  Loads the React popup bundle on every storefront page. The bundle is cached at the CDN edge;
+  the shop domain tells the API which merchant's live campaign to render.
+{% endcomment %}
+<script
+  async
+  src="{{ block.settings.script_url }}"
+  data-shop="{{ shop.permanent_domain }}"
+  data-api="{{ block.settings.api_url }}"
+  data-delay="{{ block.settings.delay_seconds | times: 1000 }}"
+></script>
+
+{% schema %}
+{
+  "name": "Email & SMS popup",
+  "target": "body",
+  "settings": [
+    { "type": "text", "id": "script_url", "label": "Popup script URL", "default": "https://cdn.popup-api.example.com/popup.js" },
+    { "type": "text", "id": "api_url", "label": "API base URL", "default": "https://popup-api.example.com" },
+    { "type": "range", "id": "delay_seconds", "label": "Show after (seconds)", "min": 0, "max": 30, "step": 1, "default": 4 }
+  ]
+}
+{% endschema %}
