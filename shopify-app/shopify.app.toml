@@ -1,0 +1,41 @@
+# Shopify app configuration (Shopify CLI: `shopify app deploy` pushes this and the theme extension).
+# Replace client_id and the URLs with your Partner Dashboard app and your Cloud Run / load balancer domain.
+
+client_id = "REPLACE_WITH_SHOPIFY_CLIENT_ID"
+name = "Popup Capture"
+application_url = "https://popup-api.example.com/dashboard/"
+embedded = true
+
+[access_scopes]
+# Create discount codes, read orders (redemption), read products (campaign agent's store profile).
+scopes = "write_discounts,read_orders,read_products"
+
+[auth]
+redirect_urls = ["https://popup-api.example.com/shopify/callback"]
+
+[webhooks]
+api_version = "2026-10"
+
+  [[webhooks.subscriptions]]
+  topics = ["orders/create"]
+  uri = "https://popup-api.example.com/webhooks/orders/create"
+
+  [[webhooks.subscriptions]]
+  topics = ["app/uninstalled"]
+  uri = "https://popup-api.example.com/webhooks/app/uninstalled"
+
+  # Mandatory privacy webhooks for App Store apps.
+  [[webhooks.subscriptions]]
+  compliance_topics = ["customers/data_request"]
+  uri = "https://popup-api.example.com/webhooks/customers/data_request"
+
+  [[webhooks.subscriptions]]
+  compliance_topics = ["customers/redact"]
+  uri = "https://popup-api.example.com/webhooks/customers/redact"
+
+  [[webhooks.subscriptions]]
+  compliance_topics = ["shop/redact"]
+  uri = "https://popup-api.example.com/webhooks/shop/redact"
+
+[pos]
+embedded = false

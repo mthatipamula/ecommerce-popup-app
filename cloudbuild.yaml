@@ -1,0 +1,30 @@
+# Build once, deploy the same image to both services, publish the popup bundle.
+#   gcloud builds submit --config cloudbuild.yaml --substitutions=_REGION=us-central1
+substitutions:
+  _REGION: us-central1
+  _TAG: manual
+steps:
+  - id: image
+    name: gcr.io/cloud-builders/docker
+    args: ["build", "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/popup/popup:${_TAG}", "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/popup/popup:latest", "."]
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args: ["push", "--all-tags", "${_REGION}-docker.pkg.dev/$PROJECT_ID/popup/popup"]
+  - id: widget
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    args: ["-c", "docker run --rm --entrypoint cat ${_REGION}-docker.pkg.dev/$PROJECT_ID/popup/popup:${_TAG} /app/web/dist/popup.js > /workspace/popup.js"]
+  - id: publish-widget
+    name: gcr.io/cloud-builders/gsutil
+    args: ["-h", "Cache-Control:public, max-age=300", "cp", "/workspace/popup.js", "gs://$PROJECT_ID-popup-widget/popup.js"]
+  - id: deploy-api
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args: ["run", "deploy", "popup-api", "--image", "${_REGION}-docker.pkg.dev/$PROJECT_ID/popup/popup:${_TAG}", "--region", "${_REGION}"]
+  - id: deploy-worker
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args: ["run", "deploy", "popup-worker", "--image", "${_REGION}-docker.pkg.dev/$PROJECT_ID/popup/popup:${_TAG}", "--region", "${_REGION}"]
+images: ["${_REGION}-docker.pkg.dev/$PROJECT_ID/popup/popup:${_TAG}"]
+options:
+  logging: CLOUD_LOGGING_ONLY

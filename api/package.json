@@ -1,0 +1,39 @@
+{
+  "name": "@popup/api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "dev:worker": "ROLE=worker tsx watch src/main.ts",
+    "build": "tsc -p tsconfig.build.json && cp src/db/schema.sql dist/db/",
+    "start": "node dist/main.js",
+    "migrate": "tsx src/migrate.ts",
+    "seed": "tsx src/seed.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "simulate": "tsx scripts/simulate.ts",
+    "reset-demo": "tsx scripts/reset-demo.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.6.0",
+    "@anthropic-ai/vertex-sdk": "^1.1.2",
+    "@fastify/cors": "^11.4.1",
+    "@fastify/rate-limit": "^11.2.2",
+    "@fastify/static": "^10.1.10",
+    "@google-cloud/pubsub": "^6.3.2",
+    "fastify": "^5.12.8",
+    "ioredis": "^6.0.0",
+    "pg": "^8.23.1",
+    "pino": "^10.4.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/pg": "^8.23.1",
+    "autocannon": "^8.0.0",
+    "pino-pretty": "^13.2.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  }
+}

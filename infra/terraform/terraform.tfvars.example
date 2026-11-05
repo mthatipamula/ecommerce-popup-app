@@ -1,0 +1,7 @@
+project_id = "your-gcp-project"
+region     = "us-central1"
+# app_url  = "https://popup-api-xxxxx-uc.a.run.app"   # set after the first apply, then apply again
+# For a cheaper demo deployment:
+# api_min_instances    = 0
+# db_high_availability = false
+# deletion_protection  = false
