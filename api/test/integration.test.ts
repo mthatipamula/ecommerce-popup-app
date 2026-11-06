@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { db, migrate } from "../src/db/index.js";
 import { redis, createRedis } from "../src/lib/redis.js";
@@ -19,6 +19,8 @@ const shop = `test-${Date.now()}.myshopify.com`;
 let campaign: Campaign;
 let app: FastifyInstance;
 const consumer = createRedis();
+/** Each shopper request gets its own address, so repeated runs within an hour don't hit the per-IP sign-up limit. */
+const freshIp = () => `10.${randomInt(256)}.${randomInt(256)}.${randomInt(1, 255)}`;
 
 beforeAll(async () => {
   await migrate();
@@ -44,23 +46,27 @@ describe("code allocation (Redis Lua)", () => {
   });
 
   it("never hands out one code twice under concurrency", async () => {
-    const results = await Promise.all(Array.from({ length: 150 }, (_, i) => allocateCode(redis, campaign.id, `c-${i}`, `ip-c-${i}`)));
+    const run = randomUUID();   // fresh emails and networks every run, so earlier runs' limits and codes don't apply
+    const results = await Promise.all(Array.from({ length: 150 }, (_, i) => allocateCode(redis, campaign.id, `c-${run}-${i}`, `ip-${run}-${i}`)));
     const codes = results.map((r) => (r as { code: string }).code);
     expect(new Set(codes).size).toBe(150);
   });
 
   it("rate-limits one network without spending codes", async () => {
+    // A pool of its own: a running worker keeps live campaigns' pools topped up, which would change the count.
+    const pool = randomUUID();
+    await redis.rpush(poolKey(pool), ...Array.from({ length: IP_HOURLY_LIMIT + 5 }, (_, i) => `RL-${i}`));
     const ip = `ip-${randomUUID()}`;
-    const before = await redis.llen(poolKey(campaign.id));
-    for (let i = 0; i < IP_HOURLY_LIMIT; i++) await allocateCode(redis, campaign.id, `rl-${ip}-${i}`, ip);
-    const blocked = await allocateCode(redis, campaign.id, `rl-${ip}-x`, ip);
+    for (let i = 0; i < IP_HOURLY_LIMIT; i++) await allocateCode(redis, pool, `rl-${ip}-${i}`, ip);
+    const blocked = await allocateCode(redis, pool, `rl-${ip}-x`, ip);
     expect(blocked.kind).toBe("rate_limited");
-    expect(await redis.llen(poolKey(campaign.id))).toBe(before - IP_HOURLY_LIMIT);
+    expect(await redis.llen(poolKey(pool))).toBe(5);
+    await redis.del(poolKey(pool));
   });
 
   it("reports an empty pool", async () => {
     const id = randomUUID();
-    expect((await allocateCode(redis, id, "e", "i")).kind).toBe("empty");
+    expect((await allocateCode(redis, id, "e", `ip-${randomUUID()}`)).kind).toBe("empty");
   });
 });
 
@@ -92,12 +98,12 @@ describe("write-behind batches", () => {
 describe("HTTP", () => {
   it("issues a code through the public endpoint and rejects a bad email", async () => {
     const ok = await app.inject({
-      method: "POST", url: "/v1/popup/submit", headers: { "user-agent": "Mozilla/5.0" },
+      method: "POST", url: "/v1/popup/submit", headers: { "user-agent": "Mozilla/5.0" }, remoteAddress: freshIp(),
       payload: { shop, campaignId: campaign.id, email: `http-${randomUUID()}@example.com`, phone: "214-555-0100", smsConsent: true },
     });
     expect(ok.statusCode).toBe(200);
     expect(ok.json().code).toMatch(/^T-/);
-    const bad = await app.inject({ method: "POST", url: "/v1/popup/submit", payload: { shop, campaignId: campaign.id, email: "nope" } });
+    const bad = await app.inject({ method: "POST", url: "/v1/popup/submit", remoteAddress: freshIp(), payload: { shop, campaignId: campaign.id, email: "nope" } });
     expect(bad.statusCode).toBe(400);
   });
 
@@ -207,7 +213,7 @@ describe("removing campaigns", () => {
 
   it("archives a campaign with sign-ups, keeping issued codes valid", async () => {
     const c = await activate(mock, (await draft("used")).id);
-    const r = await app.inject({ method: "POST", url: "/v1/popup/submit", headers: { "user-agent": "Mozilla/5.0" },
+    const r = await app.inject({ method: "POST", url: "/v1/popup/submit", headers: { "user-agent": "Mozilla/5.0" }, remoteAddress: freshIp(),
       payload: { shop: rShop, campaignId: c.id, email: `rm-${randomUUID()}@example.com` } });
     const code = r.json().code;
     await writeBatch([{ type: "signup", shop: rShop, campaignId: c.id, email: "rm@example.com", phone: null, smsConsent: false,
