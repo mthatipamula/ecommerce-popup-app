@@ -4,6 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Northwind Running (simulated Shopify store)</title>
+    <script>
+      // Demo helper: /demo/?reset clears this browser's storage (popup history, sign-in) so the next load is a
+      // brand-new visitor. Runs before the store and popup scripts so neither reads the old state.
+      (function () {
+        var url = new URL(location.href);
+        if (!url.searchParams.has("reset")) return;
+        try { localStorage.clear(); sessionStorage.clear(); } catch (e) { /* storage blocked */ }
+        url.searchParams.delete("reset");
+        location.replace(url.pathname + url.search + url.hash);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

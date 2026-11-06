@@ -149,7 +149,7 @@ node loadtest/bench.mjs http://localhost:8080 20 100   # throughput benchmark
 ## Demo script (about 7 minutes)
 
 1. **Reset and fill the store.** With the API stopped, run `npm run reset-demo -w api`. Then start the API and run `npm run simulate -w api -- 2000`.
-2. **Storefront.** Open `/demo/`. The popup appears on top of the store: enter an email, then a phone number with consent, and get a code. Click **Apply it to my cart**, then **Pay now**; the order total shows the discount.
+2. **Storefront.** Open `/demo/`. The popup appears on top of the store: enter an email, then a phone number with consent, and get a code. Click **Apply it to my cart**, then **Pay now**; the order total shows the discount. To see the popup again as a brand-new visitor, open `/demo/?reset`: it clears this browser's popup history and sign-in, then reloads the store.
 3. **Redemption.** In `/dashboard/`, the new sign-up's code shows **redeemed**. The simulated Shopify store sent a signed `orders/create` webhook, and the worker matched the code.
 4. **Reuse is blocked.** Use the same code at checkout again: Shopify (simulated) rejects it as already used. Sign up again with the same email: you get the same code back, not a second one.
 5. **Agents.** Click each chip in **Ask the agents** and open the trace:
