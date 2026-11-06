@@ -173,6 +173,8 @@ The script:
 4. Sets the app's public URL.
 5. Publishes `popup.js` to the widget bucket.
 
+The dashboard asks for the admin token the first time it's opened on a deployment. Paste the output of `gcloud secrets versions access latest --secret popup-admin-token`; the browser keeps it until you click **Sign out**. Locally the token is `demo-admin-token`, which the dashboard uses on its own.
+
 After that, `gcloud builds submit --config cloudbuild.yaml --substitutions=_TAG=$(git rev-parse --short HEAD)` rebuilds and redeploys both services.
 
 **Cost:** the defaults (HA Cloud SQL, Standard HA Redis, two warm API instances) are sized for production. For a demo, set `api_min_instances = 0`, `db_high_availability = false` and `deletion_protection = false`, and tear down afterwards:

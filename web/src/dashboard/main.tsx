@@ -19,21 +19,86 @@ interface AgentResult { agent: string; provider: string; output: string; toolCal
 const usd = (c: number) => `$${(c / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
 
+const TOKEN_KEY = "admin-token";
+// Locally the stack runs with this token, so the dashboard opens straight away; a deployed one has its own.
+const LOCAL_TOKEN = "demo-admin-token";
+
+function readToken(): string {
+  try { return localStorage.getItem(TOKEN_KEY) ?? LOCAL_TOKEN; } catch { return LOCAL_TOKEN; }
+}
+function storeToken(t: string | null) {
+  try { t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY); } catch { /* storage blocked */ }
+}
+
+type Api = ReturnType<typeof useApi>;
+
+/** Admin API calls with the merchant's token. A 401 (missing, wrong or rotated token) sends them to the sign-in screen. */
 function useApi() {
-  const [token, setToken] = useState(() => localStorage.getItem("admin-token") ?? "demo-admin-token");
+  const [token, setToken] = useState(readToken);
+  const [signedIn, setSignedIn] = useState(true);
   const call = useCallback(async <T,>(path: string, init?: { method?: string; body?: unknown }): Promise<T> => {
     const r = await fetch(path, {
       method: init?.method ?? "GET",
       headers: { Authorization: `Bearer ${token}`, ...(init?.body ? { "Content-Type": "application/json" } : {}) },
       body: init?.body ? JSON.stringify(init.body) : undefined,
     });
+    if (r.status === 401) { setSignedIn(false); throw new Error("Sign in again: the admin token was not accepted."); }
     if (!r.ok) {
       const b = await r.json().catch(() => ({}));
       throw new Error(b.message ?? b.error ?? `${r.status}`);
     }
     return r.json();
   }, [token]);
-  return { call, token, setToken: (t: string) => { localStorage.setItem("admin-token", t); setToken(t); } };
+
+  /** Checks a token against the API before keeping it. Resolves to an error message, or null when it works. */
+  const signIn = useCallback(async (t: string): Promise<string | null> => {
+    try {
+      const r = await fetch("/admin/overview", { headers: { Authorization: `Bearer ${t}` } });
+      if (r.status === 401) return "That token wasn't accepted. Check it and try again.";
+      if (!r.ok) return `The dashboard API returned ${r.status}. Try again in a moment.`;
+    } catch {
+      return "Couldn't reach the dashboard API. Check your connection and try again.";
+    }
+    storeToken(t); setToken(t); setSignedIn(true);
+    return null;
+  }, []);
+  const signOut = useCallback(() => { storeToken(null); setToken(""); setSignedIn(false); }, []);
+
+  return { call, signedIn, signIn, signOut };
+}
+
+function SignIn({ api }: { api: Api }) {
+  const [value, setValue] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const t = value.trim();
+    if (!t) { setError("Paste your admin token."); return; }
+    setBusy(true); setError(await api.signIn(t)); setBusy(false);
+  }
+  return (
+    <main className="signin">
+      <form className="panel" onSubmit={submit}>
+        <h1>Popup dashboard</h1>
+        <p className="muted">Sign in with the store's admin token.</p>
+        <label htmlFor="token">Admin token</label>
+        <input id="token" type="password" autoComplete="current-password" autoFocus value={value}
+          onChange={(e) => { setValue(e.target.value); setError(null); }} aria-invalid={!!error} aria-describedby="token-help" />
+        {error && <div className="error" role="alert">{error}</div>}
+        <button disabled={busy}>{busy ? "Checking…" : "Sign in"}</button>
+        <p id="token-help" className="muted help">
+          On GCP, get it with <code>gcloud secrets versions access latest --secret popup-admin-token</code>.
+          Running locally, it's <code>{LOCAL_TOKEN}</code>. This browser remembers it until you sign out.
+        </p>
+      </form>
+    </main>
+  );
+}
+
+function Root() {
+  const api = useApi();
+  return api.signedIn ? <App api={api} /> : <SignIn api={api} />;
 }
 
 const PROMPTS = [
@@ -44,8 +109,8 @@ const PROMPTS = [
   "How is the popup performing this week?",
 ];
 
-function App() {
-  const { call } = useApi();
+function App({ api }: { api: Api }) {
+  const { call } = api;
   const [o, setO] = useState<Overview | null>(null);
   const [signups, setSignups] = useState<Signup[]>([]);
   const [recs, setRecs] = useState<Rec[]>([]);
@@ -93,6 +158,7 @@ function App() {
           Agents: {o ? (o.provider === "offline" ? "offline mode (no model)" : `${o.provider} · ${o.model}`) : "…"}
         </span>
         <a href="/demo/" target="_blank" rel="noreferrer">Open storefront ↗</a>
+        <button className="ghost small" onClick={api.signOut}>Sign out</button>
       </header>
       {error && <div className="error">{error}</div>}
 
@@ -223,4 +289,4 @@ function Kpi({ label, value, sub }: { label: string; value: string; sub?: string
   return <div className="kpi"><div className="label">{label}</div><div className="value">{value}</div>{sub && <div className="sub">{sub}</div>}</div>;
 }
 
-createRoot(document.getElementById("root")!).render(<App />);
+createRoot(document.getElementById("root")!).render(<Root />);
