@@ -1,5 +1,5 @@
 import { config } from "./config.js";
-import { migrate, db } from "./db/index.js";
+import { migrate, db, withStartupLock } from "./db/index.js";
 import { redis, createRedis } from "./lib/redis.js";
 import { createQueue } from "./queue/index.js";
 import { buildServer } from "./server.js";
@@ -11,8 +11,10 @@ import { seedDemo } from "./seed.js";
  * so the request path scales on traffic while the worker scales on queue depth. Locally ROLE=all runs both.
  */
 async function main() {
-  await migrate();
-  if (config.SHOPIFY_MODE === "mock") await seedDemo();
+  await withStartupLock(async () => {
+    await migrate();
+    if (config.SHOPIFY_MODE === "mock") await seedDemo();
+  });
 
   const consumerRedis = createRedis(); // blocking XREADGROUP needs its own connection
   const queue = createQueue(redis, consumerRedis);
