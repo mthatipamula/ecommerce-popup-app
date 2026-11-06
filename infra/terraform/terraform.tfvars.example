@@ -5,5 +5,6 @@ region     = "us-central1"
 # api_min_instances    = 0
 # db_high_availability = false
 # deletion_protection  = false
+# worker_cpu           = "1"   # the worker is always on; 1 vCPU halves its cost
 # New projects start with no Vertex AI quota for Claude; until an increase is approved, run the agents offline:
 # llm_provider         = "offline"
