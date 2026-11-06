@@ -36,8 +36,16 @@ export const DEMO_SHOP = "northwind-running.myshopify.com";
 const DEMO_PRODUCTS: ShopProfile["products"] = [
   { title: "Tempo Racer 3 Running Shoe", priceCents: 14000, productType: "Shoes" },
   { title: "Trailblazer GTX Trail Shoe", priceCents: 16500, productType: "Shoes" },
+  { title: "Cloudstride Daily Trainer", priceCents: 12500, productType: "Shoes" },
+  { title: "Sprintline Carbon Racer", priceCents: 22000, productType: "Shoes" },
+  { title: "Summit Grip Trail Shoe", priceCents: 14500, productType: "Shoes" },
+  { title: "Recovery Slide", priceCents: 4500, productType: "Shoes" },
   { title: "Featherweight Running Tee", priceCents: 3800, productType: "Apparel" },
   { title: "Thermal Half-Zip", priceCents: 7200, productType: "Apparel" },
+  { title: "Split Running Shorts 5\"", priceCents: 4800, productType: "Apparel" },
+  { title: "Breeze Running Tank", priceCents: 3200, productType: "Apparel" },
+  { title: "Storm Shell Running Jacket", priceCents: 13500, productType: "Apparel" },
+  { title: "Compression Running Tights", priceCents: 7800, productType: "Apparel" },
   { title: "Hydration Vest 5L", priceCents: 11000, productType: "Gear" },
   { title: "Merino Crew Socks (3-pack)", priceCents: 2400, productType: "Accessories" },
 ];
