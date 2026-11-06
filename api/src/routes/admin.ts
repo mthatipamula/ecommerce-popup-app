@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "../db/index.js";
 import { config } from "../config.js";
 import { safeEqual } from "../lib/crypto.js";
-import { listCampaigns } from "../lib/campaigns.js";
+import { listCampaigns, liveCampaignForShop } from "../lib/campaigns.js";
 import { activate, applyRecommendation, createDraft, pause } from "../lib/campaignService.js";
 import { campaignStats, dailySeries } from "../lib/metrics.js";
 import { shopify, DEMO_SHOP } from "../shopify/client.js";
@@ -20,6 +20,9 @@ const Draft = z.object({
   discountPercent: z.number().int().min(1).max(90),
   codePrefix: z.string().max(12).optional(),
   theme: z.record(z.string(), z.string()).optional(),
+  // A schedule: e.g. one day, or 15 consecutive days. The dashboard sends local midnight-to-midnight as ISO times.
+  startsAt: z.iso.datetime({ offset: true }).nullish(),
+  endsAt: z.iso.datetime({ offset: true }).nullish(),
 });
 
 /** Merchant dashboard API. Demo auth: one bearer token (in production: Shopify session tokens from App Bridge). */
@@ -33,6 +36,7 @@ export async function adminRoutes(app: FastifyInstance) {
     provider,
     model: provider === "offline" ? null : config.CLAUDE_MODEL,
     campaigns: await listCampaigns(),
+    liveCampaignId: (await liveCampaignForShop(DEMO_SHOP))?.id ?? null,
     stats: await campaignStats(),
     series: await dailySeries(14),
   }));
@@ -50,7 +54,14 @@ export async function adminRoutes(app: FastifyInstance) {
     ).rows;
   });
 
-  app.post("/admin/campaigns", async (req) => createDraft(Draft.parse(req.body)));
+  app.post("/admin/campaigns", async (req, reply) => {
+    const parsed = Draft.safeParse(req.body);
+    if (!parsed.success) {
+      const i = parsed.error.issues[0];
+      return reply.code(400).send({ error: `${i?.path.join(".") || "input"}: ${i?.message ?? "invalid"}` });
+    }
+    return createDraft(parsed.data);
+  });
   app.post("/admin/campaigns/:id/activate", async (req) => activate(shopify, (req.params as { id: string }).id));
   app.post("/admin/campaigns/:id/pause", async (req) => {
     await pause((req.params as { id: string }).id);

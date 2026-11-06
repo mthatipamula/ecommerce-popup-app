@@ -21,4 +21,14 @@ article h3 { margin: 0; font-size: 15px; } .price { color: #334155; }
 .drawer > div > button { width: 100%; margin-top: 14px; }
 .line { display: flex; justify-content: space-between; font-size: 14px; padding: 4px 0; } .total { font-weight: 700; border-top: 1px solid #e5e7eb; margin-top: 10px; padding-top: 10px; }
 .ok { color: #047857; } .err { color: #b91c1c; } .muted { color: #64748b; font-size: 13px; }
-@media (max-width: 600px) { header { padding: 12px 16px; } nav { display: none; } .hero { padding: 36px 16px; } .grid { padding: 16px; } }
+.logo { cursor: pointer; }
+.account-btn { padding: 8px 14px; }
+.drawer form { display: grid; gap: 4px; } .drawer form > button { width: 100%; margin-top: 14px; }
+.switch { margin-top: 10px; } .linkish { background: none; color: #0f766e; padding: 0; text-decoration: underline; }
+.signed-as { margin: 10px 0 0; }
+.account { max-width: 760px; margin: 0 auto; padding: 48px 32px; display: grid; gap: 20px; }
+.account h1 { margin: 0 0 4px; font-size: 34px; } .eyebrow { margin: 0 0 6px; color: #0f766e; font-weight: 600; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
+.account-card { background: #fff; border-radius: 12px; padding: 18px 20px; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+.account-card h2 { margin: 0 0 8px; font-size: 16px; }
+.account-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 600px) { header { padding: 12px 16px; } nav { display: none; } .hero { padding: 36px 16px; } .grid { padding: 16px; } .account { padding: 28px 16px; } header { gap: 12px; } }

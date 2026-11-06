@@ -6,8 +6,11 @@ interface Stats {
   campaignId: string; name: string; status: string; discountPercent: number; views: number; signups: number; smsOptIns: number;
   redemptions: number; revenueCents: number; flagged: number; blocked: number; poolSize: number; signupRate: number; redemptionRate: number;
 }
-interface Campaign { id: string; name: string; status: string; headline: string; discountPercent: number; createdBy: string }
-interface Overview { provider: string; model: string | null; campaigns: Campaign[]; stats: Stats[] }
+interface Campaign {
+  id: string; name: string; status: string; headline: string; discountPercent: number; createdBy: string;
+  startsAt: string | null; endsAt: string | null;
+}
+interface Overview { provider: string; model: string | null; campaigns: Campaign[]; stats: Stats[]; liveCampaignId: string | null }
 interface Signup { id: number; email: string; phone: string | null; sms_consent: boolean; code: string; abuse_status: string; code_status: string; created_at: string }
 interface Rec { id: number; campaign_id: string; discount_percent: number; rationale: string; status: string }
 interface ToolCall { tool: string; input: unknown; result: any; error?: string }
@@ -24,7 +27,10 @@ function useApi() {
       headers: { Authorization: `Bearer ${token}`, ...(init?.body ? { "Content-Type": "application/json" } : {}) },
       body: init?.body ? JSON.stringify(init.body) : undefined,
     });
-    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `${r.status}`);
+    if (!r.ok) {
+      const b = await r.json().catch(() => ({}));
+      throw new Error(b.message ?? b.error ?? `${r.status}`);
+    }
     return r.json();
   }, [token]);
   return { call, token, setToken: (t: string) => { localStorage.setItem("admin-token", t); setToken(t); } };
@@ -65,7 +71,7 @@ function App() {
     finally { setRunning(false); }
   }
 
-  const live = o?.stats.find((s) => s.status === "active");
+  const live = o?.stats.find((s) => s.campaignId === o.liveCampaignId);
   const totals = (o?.stats ?? []).reduce((t, s) => ({
     views: t.views + s.views, signups: t.signups + s.signups, sms: t.sms + s.smsOptIns, redemptions: t.redemptions + s.redemptions, revenue: t.revenue + s.revenueCents,
   }), { views: 0, signups: 0, sms: 0, redemptions: 0, revenue: 0 });
@@ -117,24 +123,30 @@ function App() {
         )}
       </section>
 
+      <NewCampaign call={call} onCreated={refresh} />
+
       <section className="panel">
         <h2>Campaigns</h2>
+        <p className="muted">A scheduled campaign takes over from the always-on one during its dates, then the always-on one comes back.</p>
         <table>
-          <thead><tr><th>Name</th><th>Status</th><th>Offer</th><th>Views</th><th>Sign-ups</th><th>Redeemed</th><th>Revenue</th><th>Flagged / blocked</th><th>By</th><th /></tr></thead>
+          <thead><tr><th>Name</th><th>Status</th><th>Schedule</th><th>Offer</th><th>Views</th><th>Sign-ups</th><th>Redeemed</th><th>Revenue</th><th>Flagged / blocked</th><th>By</th><th /></tr></thead>
           <tbody>
             {o?.campaigns.map((c) => {
               const s = o.stats.find((x) => x.campaignId === c.id);
+              const p = phase(c);
               return (
                 <tr key={c.id}>
-                  <td title={c.headline}>{c.name}</td>
-                  <td><span className={`pill ${c.status}`}>{c.status}</span></td>
+                  <td title={c.headline}>{c.name}{c.id === o.liveCampaignId && <span className="pill live">showing now</span>}</td>
+                  <td><span className={`pill ${p}`}>{p}</span></td>
+                  <td>{scheduleLabel(c.startsAt, c.endsAt)}</td>
                   <td>{c.discountPercent}%</td>
                   <td>{s?.views ?? 0}</td><td>{s?.signups ?? 0}</td><td>{s?.redemptions ?? 0}</td><td>{usd(s?.revenueCents ?? 0)}</td>
                   <td>{s?.flagged ?? 0} / {s?.blocked ?? 0}</td>
                   <td>{c.createdBy}</td>
-                  <td>{c.status === "active"
+                  <td>{c.status === "active" || (c.status === "scheduled" && p !== "ended")
                     ? <button className="small ghost" onClick={() => act(`/admin/campaigns/${c.id}/pause`)}>Pause</button>
-                    : <button className="small" onClick={() => act(`/admin/campaigns/${c.id}/activate`)}>Activate</button>}</td>
+                    : p === "ended" ? null
+                    : <button className="small" onClick={() => act(`/admin/campaigns/${c.id}/activate`)}>{c.startsAt ? "Schedule" : "Activate"}</button>}</td>
                 </tr>
               );
             })}
@@ -171,6 +183,132 @@ function App() {
         </table>
       </section>
     </div>
+  );
+}
+
+// ------------------------------------------------------------------ scheduling
+
+type ScheduleKind = "always" | "date" | "days";
+const DAY_MS = 86_400_000;
+const fmtDay = (d: Date) => d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+
+function todayLocal(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Whole days in the merchant's time zone: from midnight on the start date to midnight after the last day. */
+function scheduleWindow(kind: ScheduleKind, date: string, days: number): { startsAt: string; endsAt: string } | null {
+  if (kind === "always" || !date) return null;
+  const [y, m, d] = date.split("-").map(Number);
+  const start = new Date(y, m - 1, d);
+  const end = new Date(y, m - 1, d + (kind === "date" ? 1 : days));   // calendar days, so DST changes don't shift it
+  return { startsAt: start.toISOString(), endsAt: end.toISOString() };
+}
+
+function scheduleLabel(startsAt: string | null, endsAt: string | null): string {
+  if (!startsAt || !endsAt) return "Always on";
+  const start = new Date(startsAt), last = new Date(new Date(endsAt).getTime() - 1);
+  const days = Math.round((new Date(endsAt).getTime() - start.getTime()) / DAY_MS);
+  return days <= 1 ? fmtDay(start) : `${fmtDay(start)} → ${fmtDay(last)} · ${days} days`;
+}
+
+/** What the merchant cares about: is it showing, waiting for its dates, or over? */
+function phase(c: Campaign): string {
+  if (c.status !== "scheduled" || !c.startsAt || !c.endsAt) return c.status;
+  const now = Date.now();
+  if (now < Date.parse(c.startsAt)) return "upcoming";
+  if (now >= Date.parse(c.endsAt)) return "ended";
+  return "running";
+}
+
+type Call = ReturnType<typeof useApi>["call"];
+
+function NewCampaign({ call, onCreated }: { call: Call; onCreated: () => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const [f, setF] = useState({
+    name: "Welcome 20%", headline: "Take 20% off today", cta: "Unlock my 20% off", discountPercent: 20, codePrefix: "WELCOME20",
+    body: "Sign up for Northwind Running news and get 20% off your order.",
+  });
+  const [kind, setKind] = useState<ScheduleKind>("date");
+  const [date, setDate] = useState(todayLocal);
+  const [days, setDays] = useState(15);
+  const [goLive, setGoLive] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+    setF({ ...f, [k]: k === "discountPercent" ? Number(e.target.value) : e.target.value });
+
+  const win = scheduleWindow(kind, date, days);
+  const ended = win ? Date.parse(win.endsAt) <= Date.now() : false;
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setMsg(null);
+    let created: Campaign | null = null;
+    try {
+      created = await call<Campaign>("/admin/campaigns", { method: "POST", body: { ...f, ...(win ?? {}) } });
+      if (goLive) await call(`/admin/campaigns/${created.id}/activate`, { method: "POST" });
+      setMsg({ ok: true, text: `Created "${created.name}"${goLive ? (win ? `, scheduled for ${scheduleLabel(win.startsAt, win.endsAt)}` : " and live now") : " as a draft"}.` });
+    } catch (err) {
+      const text = (err as Error).message;
+      setMsg({ ok: false, text: created ? `Saved "${created.name}" as a draft, but it couldn't go live: ${text}` : text });
+    } finally {
+      setBusy(false);
+      await onCreated();
+    }
+  }
+
+  if (!open) {
+    return (
+      <section className="panel new-campaign closed">
+        <div><h2>New campaign</h2><p className="muted">Create a popup offer, e.g. "Welcome 20%" for one day or for 15 days in a row.</p></div>
+        <button onClick={() => setOpen(true)}>+ New campaign</button>
+      </section>
+    );
+  }
+
+  return (
+    <section className="panel new-campaign">
+      <h2>New campaign</h2>
+      <form onSubmit={submit}>
+        <div className="fields">
+          <label>Name<input value={f.name} onChange={set("name")} maxLength={120} required /></label>
+          <label>Discount %<input type="number" min={1} max={90} value={f.discountPercent} onChange={set("discountPercent")} required /></label>
+          <label>Code prefix<input value={f.codePrefix} onChange={set("codePrefix")} maxLength={12} pattern="[A-Za-z0-9]*" title="Letters and digits only" /></label>
+          <label className="wide">Headline<input value={f.headline} onChange={set("headline")} maxLength={60} required /></label>
+          <label className="wide">Text<textarea value={f.body} onChange={set("body")} maxLength={140} rows={2} required /></label>
+          <label>Button<input value={f.cta} onChange={set("cta")} maxLength={24} required /></label>
+        </div>
+
+        <fieldset className="schedule">
+          <legend>When should it run?</legend>
+          <label className="radio"><input type="radio" checked={kind === "always"} onChange={() => setKind("always")} /> Always on</label>
+          <label className="radio"><input type="radio" checked={kind === "date"} onChange={() => setKind("date")} /> On a specific date</label>
+          <label className="radio"><input type="radio" checked={kind === "days"} onChange={() => setKind("days")} /> For consecutive days</label>
+          {kind !== "always" && (
+            <div className="schedule-inputs">
+              <label>{kind === "date" ? "Date" : "Start date"}<input type="date" value={date} onChange={(e) => setDate(e.target.value)} required /></label>
+              {kind === "days" && <label>Number of days<input type="number" min={2} max={366} value={days} onChange={(e) => setDays(Number(e.target.value))} required /></label>}
+            </div>
+          )}
+          <p className="muted summary">
+            {win
+              ? <>Runs <strong>{scheduleLabel(win.startsAt, win.endsAt)}</strong>, midnight to midnight in your time zone ({Intl.DateTimeFormat().resolvedOptions().timeZone}). Codes only work during these dates; outside them the always-on campaign shows instead.</>
+              : <>Shows until you pause it, and replaces the current always-on campaign.</>}
+          </p>
+        </fieldset>
+
+        <label className="radio"><input type="checkbox" checked={goLive} onChange={(e) => setGoLive(e.target.checked)} /> {win ? "Schedule it now" : "Make it live now"} (otherwise saved as a draft)</label>
+        {ended && <p className="err">Those dates are already over.</p>}
+        {msg && <p className={msg.ok ? "ok-msg" : "err"}>{msg.text}</p>}
+        <div className="actions">
+          <button disabled={busy || ended}>{busy ? "Creating…" : "Create campaign"}</button>
+          <button type="button" className="ghost" onClick={() => { setOpen(false); setMsg(null); }}>Close</button>
+        </div>
+      </form>
+    </section>
   );
 }
 

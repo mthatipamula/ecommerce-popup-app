@@ -31,6 +31,8 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid 
 .consent { display: flex; gap: 8px; text-align: left; font-size: 11px; line-height: 1.4; opacity: .8; }
 .consent input { margin-top: 2px; flex: none; }
 .error { color: #b91c1c; font-size: 14px; }
+.greet { font-size: 14px; font-weight: 600; color: var(--p); margin-bottom: 6px; }
+.signed-in { font-size: 14px; padding: 12px; border-radius: 10px; background: rgba(0,0,0,.05); word-break: break-all; }
 .code {
   margin: 4px 0 16px; padding: 14px; border: 2px dashed var(--p); border-radius: 10px;
   font: 700 22px/1 ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: .06em; user-select: all;

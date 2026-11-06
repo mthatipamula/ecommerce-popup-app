@@ -48,7 +48,7 @@ export async function webhookRoutes(app: FastifyInstance, { queue }: { queue: Ev
   app.post("/webhooks/app/uninstalled", async (req) => {
     const shop = shopOf(req.headers);
     await db.query("UPDATE shops SET uninstalled_at = now(), access_token_enc = NULL WHERE shop_domain = $1", [shop]);
-    await db.query("UPDATE campaigns SET status = 'paused' WHERE shop_domain = $1 AND status = 'active'", [shop]);
+    await db.query("UPDATE campaigns SET status = 'paused' WHERE shop_domain = $1 AND status IN ('active', 'scheduled')", [shop]);
     await invalidateShop(shop);
     return { ok: true };
   });

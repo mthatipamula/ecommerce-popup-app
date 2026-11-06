@@ -9,10 +9,19 @@ export interface ShopProfile {
   products: { title: string; priceCents: number; productType: string }[];
 }
 
+export interface DiscountInput {
+  title: string;
+  percent: number;
+  firstCode: string;
+  /** A scheduled campaign's codes only work inside its window, like Shopify's startsAt / endsAt. */
+  startsAt?: string | null;
+  endsAt?: string | null;
+}
+
 /** The slice of Shopify this app needs. Two implementations: the simulated store and the real Admin API. */
 export interface ShopifyClient {
   /** One Shopify discount per campaign; individual unique codes are attached to it. */
-  createDiscount(shop: string, input: { title: string; percent: number; firstCode: string }): Promise<string>;
+  createDiscount(shop: string, input: DiscountInput): Promise<string>;
   addCodes(shop: string, discountId: string, codes: string[]): Promise<void>;
   disableCode(shop: string, discountId: string, code: string): Promise<void>;
   shopProfile(shop: string): Promise<ShopProfile>;
@@ -32,11 +41,11 @@ const DEMO_PRODUCTS: ShopProfile["products"] = [
 ];
 
 export class MockShopifyClient implements ShopifyClient {
-  async createDiscount(shop: string, input: { title: string; percent: number; firstCode: string }) {
+  async createDiscount(shop: string, input: DiscountInput) {
     const id = `gid://shopify/DiscountCodeNode/${randomUUID()}`;
     await db.query(
-      "INSERT INTO mock_shopify_discounts (id, shop_domain, title, discount_percent) VALUES ($1, $2, $3, $4)",
-      [id, shop, input.title, input.percent],
+      "INSERT INTO mock_shopify_discounts (id, shop_domain, title, discount_percent, starts_at, ends_at) VALUES ($1, $2, $3, $4, $5, $6)",
+      [id, shop, input.title, input.percent, input.startsAt ?? null, input.endsAt ?? null],
     );
     await this.addCodes(shop, id, [input.firstCode]);
     return id;
@@ -77,7 +86,7 @@ export class AdminApiShopifyClient implements ShopifyClient {
   }
 
   // Field names follow the Admin GraphQL discount API; check them against SHOPIFY_API_VERSION before going live.
-  async createDiscount(shop: string, input: { title: string; percent: number; firstCode: string }) {
+  async createDiscount(shop: string, input: DiscountInput) {
     const data = await this.graphql<any>(shop, `
       mutation Create($d: DiscountCodeBasicInput!) {
         discountCodeBasicCreate(basicCodeDiscount: $d) {
@@ -88,7 +97,8 @@ export class AdminApiShopifyClient implements ShopifyClient {
       d: {
         title: input.title,
         code: input.firstCode,
-        startsAt: new Date().toISOString(),
+        startsAt: input.startsAt ?? new Date().toISOString(),
+        ...(input.endsAt ? { endsAt: input.endsAt } : {}),
         context: { all: "ALL" },
         customerGets: { value: { percentage: input.percent / 100 }, items: { all: true } },
         appliesOncePerCustomer: true,
