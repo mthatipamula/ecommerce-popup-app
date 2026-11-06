@@ -17,7 +17,9 @@ $TF apply -input=false -auto-approve -var project_id="$PROJECT" -var region="$RE
 gcloud builds submit --region "$REGION" --tag "$REGION-docker.pkg.dev/$PROJECT/popup/popup:$TAG" .
 # 2. Everything else, pointing at that image.
 $TF apply -input=false -auto-approve -var project_id="$PROJECT" -var region="$REGION" -var image_tag="$TAG"
-URL=$($TF output -raw api_url)
+# Ask Cloud Run directly: Terraform's api_url output can still be empty right after a service is first created.
+URL=$(gcloud run services describe popup-api --region "$REGION" --format='value(status.url)')
+[ -n "$URL" ] || { echo "popup-api has no URL yet; check: gcloud run services describe popup-api --region $REGION" >&2; exit 1; }
 # 3. Tell the app its own public URL (OAuth redirect, apply links), and publish the popup bundle.
 $TF apply -input=false -auto-approve -var project_id="$PROJECT" -var region="$REGION" -var image_tag="$TAG" -var app_url="$URL"
 docker run --rm --entrypoint cat "$REGION-docker.pkg.dev/$PROJECT/popup/popup:$TAG" /app/web/dist/popup.js > /tmp/popup.js 2>/dev/null \

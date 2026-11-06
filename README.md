@@ -177,6 +177,8 @@ The dashboard asks for the admin token the first time it's opened on a deploymen
 
 After that, `gcloud builds submit --config cloudbuild.yaml --substitutions=_TAG=$(git rev-parse --short HEAD)` rebuilds and redeploys both services.
 
+**Agents on GCP** use Claude on Vertex AI. New projects usually start with no quota for Claude models, so agent runs fail with a 429 until you request an increase (Console → IAM & Admin → Quotas, `global_online_prediction_requests_per_base_model` for `anthropic-claude-opus`). Until then, set `llm_provider = "offline"` in `terraform.tfvars` and apply; the agents run their built-in rules, as they do locally.
+
 **Cost:** the defaults (HA Cloud SQL, Standard HA Redis, two warm API instances) are sized for production. For a demo, set `api_min_instances = 0`, `db_high_availability = false` and `deletion_protection = false`, and tear down afterwards:
 
 ```bash

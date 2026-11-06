@@ -260,7 +260,7 @@ locals {
     GCP_PROJECT        = var.project_id
     SHOPIFY_MODE       = var.shopify_mode
     SHOPIFY_API_KEY    = var.shopify_api_key
-    LLM_PROVIDER       = "vertex"
+    LLM_PROVIDER       = var.llm_provider
     VERTEX_REGION      = var.vertex_region
     APP_URL            = var.app_url
     POOL_TARGET        = tostring(var.pool_target)
@@ -278,6 +278,8 @@ resource "google_cloud_run_v2_service" "api" {
   name     = "popup-api"
   location = var.region
   ingress  = "INGRESS_TRAFFIC_ALL"
+  # The provider defaults this to true, which blocks replacing a failed service and `terraform destroy`.
+  deletion_protection = var.deletion_protection
   template {
     service_account                  = google_service_account.api.email
     max_instance_request_concurrency = 250
@@ -331,9 +333,10 @@ resource "google_cloud_run_v2_service" "api" {
 }
 
 resource "google_cloud_run_v2_service" "worker" {
-  name     = "popup-worker"
-  location = var.region
-  ingress  = "INGRESS_TRAFFIC_INTERNAL_ONLY"
+  name                = "popup-worker"
+  location            = var.region
+  ingress             = "INGRESS_TRAFFIC_INTERNAL_ONLY"
+  deletion_protection = var.deletion_protection
   template {
     service_account = google_service_account.worker.email
     scaling {
