@@ -69,6 +69,16 @@ variable "api_max_instances" {
   default = 60
 }
 
+variable "worker_cpu" {
+  type        = string
+  default     = "2"
+  description = "vCPUs for the always-on worker. 1 is plenty for a demo; use 2 for load tests or real traffic."
+  validation {
+    condition     = contains(["1", "2", "4"], var.worker_cpu)
+    error_message = "worker_cpu must be 1, 2 or 4"
+  }
+}
+
 variable "worker_max_instances" {
   type    = number
   default = 4

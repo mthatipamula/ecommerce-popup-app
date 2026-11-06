@@ -353,7 +353,7 @@ resource "google_cloud_run_v2_service" "worker" {
     containers {
       image = local.image
       resources {
-        limits   = { cpu = "2", memory = "1Gi" }
+        limits   = { cpu = var.worker_cpu, memory = "1Gi" }
         cpu_idle = false # CPU always allocated: background work runs outside requests
       }
       dynamic "env" {
