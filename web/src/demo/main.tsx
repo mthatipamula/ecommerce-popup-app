@@ -163,8 +163,11 @@ function Store() {
           <section className="hero">
             <h1>Run further. Recover faster.</h1>
             <p>Performance gear tested on real miles.</p>
-            <button onClick={() => window.PopupApp?.open()}>Show the popup again</button>
-            <button className="ghost" onClick={() => { localStorage.clear(); sessionStorage.clear(); location.reload(); }}>Reset as new visitor</button>
+            <button onClick={() => window.PopupApp?.open()}>{customer ? "Show my offer" : "Show the popup again"}</button>
+            {/* Demo helper for guests only: it clears this browser's storage, which would also sign a customer out. */}
+            {!customer && (
+              <button className="ghost" onClick={() => { localStorage.clear(); sessionStorage.clear(); location.reload(); }}>Reset as new visitor</button>
+            )}
           </section>
           <main className="grid">
             {products.map((p) => (
