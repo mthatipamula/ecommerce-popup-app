@@ -260,7 +260,7 @@ locals {
     GCP_PROJECT        = var.project_id
     SHOPIFY_MODE       = var.shopify_mode
     SHOPIFY_API_KEY    = var.shopify_api_key
-    LLM_PROVIDER       = "vertex"
+    LLM_PROVIDER       = var.llm_provider
     VERTEX_REGION      = var.vertex_region
     APP_URL            = var.app_url
     POOL_TARGET        = tostring(var.pool_target)

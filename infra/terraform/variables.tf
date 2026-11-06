@@ -41,6 +41,16 @@ variable "shopify_api_secret" {
   default   = "demo-shopify-secret"
 }
 
+variable "llm_provider" {
+  type        = string
+  default     = "vertex"
+  description = "vertex = Claude on Vertex AI; offline = the agents' built-in rules, no model (use while Vertex quota for Claude is pending)"
+  validation {
+    condition     = contains(["vertex", "offline"], var.llm_provider)
+    error_message = "llm_provider must be vertex or offline"
+  }
+}
+
 variable "vertex_region" {
   type        = string
   default     = "global"
