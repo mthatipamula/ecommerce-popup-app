@@ -1,6 +1,7 @@
 {% comment %}
   Loads the React popup bundle on every storefront page. The bundle is cached at the CDN edge;
-  the shop domain tells the API which merchant's live campaign to render.
+  the shop domain tells the API which merchant's live campaign to render. When a customer is signed in, the
+  popup skips the guest timer and opens on the account page Shopify shows right after sign-in.
 {% endcomment %}
 <script
   async
@@ -8,6 +9,11 @@
   data-shop="{{ shop.permanent_domain }}"
   data-api="{{ block.settings.api_url }}"
   data-delay="{{ block.settings.delay_seconds | times: 1000 }}"
+  data-page-type="{{ request.page_type }}"
+  {% if customer %}
+    data-customer-email="{{ customer.email | escape }}"
+    data-customer-first-name="{{ customer.first_name | escape }}"
+  {% endif %}
 ></script>
 
 {% schema %}

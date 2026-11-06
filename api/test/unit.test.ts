@@ -4,6 +4,7 @@ import { decrypt, encrypt, newCode, shopifyWebhookHmac, verifyShopifyQueryHmac }
 import { abuseScore, FLAG_THRESHOLD } from "../src/lib/abuse.js";
 import { normalizePhone } from "../src/routes/popup.js";
 import { config } from "../src/config.js";
+import { addDays, parseSchedule, scheduleWindow, todayIn } from "../src/lib/schedule.js";
 
 describe("Shopify signatures", () => {
   it("signs webhook bodies as base64 HMAC-SHA256 with the app secret", () => {
@@ -57,5 +58,29 @@ describe("abuse rules", () => {
     const r = abuseScore({ email: "deal88812@gmail.com", ipCount: 25, userAgent: "python-requests/2.31" });
     expect(r.score).toBeGreaterThanOrEqual(FLAG_THRESHOLD);
     expect(r.reasons.length).toBeGreaterThan(1);
+  });
+});
+
+describe("campaign schedules", () => {
+  const today = "2026-11-05"; // a Thursday
+
+  it("reads dates and lengths from plain English", () => {
+    expect(parseSchedule("Welcome 20% on Nov 20", today)).toEqual({ startDate: "2026-11-20", days: 1, label: null });
+    expect(parseSchedule("Welcome 20% off for 15 days starting tomorrow", today)).toEqual({ startDate: "2026-11-06", days: 15, label: null });
+    expect(parseSchedule("20% for 15 consecutive days from 2026-12-01", today)).toMatchObject({ startDate: "2026-12-01", days: 15 });
+    expect(parseSchedule("run it 3rd of January for a week", today)).toMatchObject({ startDate: "2027-01-03", days: 7 });
+    expect(parseSchedule("Draft a Black Friday popup with 20% off", today)).toEqual({ startDate: "2026-11-27", days: 1, label: "Black Friday" });
+    expect(parseSchedule("Cyber Monday 25%", today)).toMatchObject({ startDate: "2026-11-30" });
+    expect(parseSchedule("Take 15% off your first order", today)).toBeNull();
+    expect(parseSchedule("open 24/7 deal", today)).toBeNull();
+  });
+
+  it("turns days into midnight-to-midnight windows in the merchant's time zone, across DST", () => {
+    expect(scheduleWindow("2026-11-20", 1, "America/Chicago")).toEqual({ startsAt: "2026-11-20T06:00:00.000Z", endsAt: "2026-11-21T06:00:00.000Z" });
+    // US clocks go back on Nov 1 2026: the window still starts and ends at local midnight.
+    expect(scheduleWindow("2026-10-30", 5, "America/Chicago")).toEqual({ startsAt: "2026-10-30T05:00:00.000Z", endsAt: "2026-11-04T06:00:00.000Z" });
+    expect(scheduleWindow("2026-12-01", 15, "Asia/Kolkata").startsAt).toBe("2026-11-30T18:30:00.000Z");
+    expect(addDays("2026-12-25", 15)).toBe("2027-01-09");
+    expect(todayIn("Pacific/Auckland", new Date("2026-11-05T12:00:00Z"))).toBe("2026-11-06");
   });
 });

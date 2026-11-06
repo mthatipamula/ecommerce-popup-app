@@ -77,6 +77,25 @@ The agents use a manual tool-use loop on the Claude Messages API (`@anthropic-ai
 - **Audit trail:** every run is stored in `agent_runs` with its tool calls, and the dashboard shows the trace.
 - **Offline mode:** with `LLM_PROVIDER=offline` (the default), each agent runs a deterministic policy over the **same tools**, so the demo works without GCP credentials. The dashboard badge shows which mode is active.
 
+## Campaign schedules and signed-in customers
+
+**Schedules.** Campaigns are created by asking the agents on the dashboard, in plain words: "Welcome 20% on Nov 20", "Welcome 20% off for 15 days starting tomorrow", "Draft a Black Friday popup with 20% off". The campaign agent drafts the popup with its schedule: *always on* (no dates given), *a specific date*, or *N consecutive days*. Days run midnight to midnight in the merchant's time zone, which the dashboard sends with each request. Nothing goes live until the merchant clicks **Schedule** (or **Activate** for always-on).
+
+**Pause and remove.** Every campaign has **Pause** (stop showing, keep it) and **Remove**:
+
+- A campaign no shopper got a code from is deleted, and its Shopify discount is switched off.
+- One with sign-ups is archived instead: hidden from the list, its results kept in the totals, and codes already sent still work.
+
+- A scheduled campaign takes over from the always-on campaign during its dates; afterwards the always-on one shows again. Two scheduled campaigns can't overlap.
+- Its Shopify discount gets the same `startsAt` / `endsAt`, so its codes only work during those dates.
+- The config cache expires exactly when a schedule starts or ends, and the worker fills a scheduled campaign's code pool an hour before it starts.
+
+**Signed-in customers.** Guests still see the popup after a delay or on exit intent. A signed-in customer sees it on the screen they land on right after signing in, greeted by name, with the account email already filled in:
+
+- On Shopify, the theme block passes `{{ customer.email }}`, `{{ customer.first_name }}` and `{{ request.page_type }}`. The popup opens on the account page (`customers/account`) once per browser session.
+- Single-page storefronts call `window.PopupApp.identify(customer, { postLogin: true })` after sign-in and `identify(null)` after sign-out. The demo store does this; it has simulated customer accounts (sign in, create an account, order history).
+- A customer who already got this offer's code, or dismissed it in the last 24 hours, isn't shown it again.
+
 ## Shopify integration
 
 | Piece | Where |
@@ -86,7 +105,7 @@ The agents use a manual tool-use loop on the Claude Messages API (`@anthropic-ai
 | OAuth install and callback (HMAC + state check, encrypted offline token) | `api/src/routes/oauth.ts` |
 | Discount creation and bulk code add (Admin GraphQL) | `api/src/shopify/client.ts` (`AdminApiShopifyClient`) |
 | Webhooks: HMAC over the raw body, dedupe by `X-Shopify-Webhook-Id`, enqueue | `api/src/routes/webhooks.ts` |
-| Simulated store: catalogue, checkout, signed `orders/create` | `api/src/routes/mockShopify.ts`, `web/src/demo/` |
+| Simulated store: catalogue, customer accounts, checkout, signed `orders/create` | `api/src/routes/mockShopify.ts`, `web/src/demo/` |
 
 `SHOPIFY_MODE=mock` (the default) uses the simulated store. `SHOPIFY_MODE=real` uses the Admin API, which needs a Partner app and a development store. The GraphQL field names in real mode follow the discount API and haven't been run against a live store; check them against `SHOPIFY_API_VERSION` first.
 

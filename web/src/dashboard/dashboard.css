@@ -20,7 +20,9 @@ table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nu
 th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; } th { color: var(--muted); font-weight: 500; font-size: 12px; }
 .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; background: var(--line); }
 .pill.active, .pill.ok, .pill.redeemed, .pill.allowed { background: #dcfce7; color: #166534; }
-.pill.paused, .pill.draft, .pill.issued { background: #e0e7ff; color: #3730a3; }
+.pill.paused, .pill.draft, .pill.issued, .pill.upcoming { background: #e0e7ff; color: #3730a3; }
+.pill.running { background: #dcfce7; color: #166534; } .pill.ended { background: var(--line); color: var(--muted); }
+.pill.live { background: var(--brand); color: #fff; margin-left: 8px; }
 .pill.flagged, .pill.warn { background: #fef3c7; color: #92400e; }
 .pill.blocked, .pill.revoked { background: #fee2e2; color: #991b1b; }
 .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
@@ -31,3 +33,5 @@ th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line
 .trace { margin: 6px 0 0; padding-left: 20px; color: var(--muted); } .trace code { color: var(--fg); } .sub { color: var(--muted); } .err { color: #dc2626; }
 .rec { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 6px 0; } .rec span { flex: 1; color: var(--muted); }
 .error { background: #fee2e2; color: #991b1b; padding: 10px 14px; border-radius: 8px; }
+td.actions { display: flex; gap: 6px; }
+button.danger { color: #dc2626; border-color: color-mix(in srgb, #dc2626 40%, var(--line)); }

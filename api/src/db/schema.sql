@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
   id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   shop_domain         text NOT NULL REFERENCES shops(shop_domain),
   name                text NOT NULL,
-  status              text NOT NULL DEFAULT 'draft',       -- draft | active | paused
+  status              text NOT NULL DEFAULT 'draft',       -- draft | active | scheduled | paused | archived
   discount_percent    int  NOT NULL CHECK (discount_percent BETWEEN 1 AND 90),
   code_prefix         text NOT NULL DEFAULT 'WELCOME',
   shopify_discount_id text,                                -- gid://shopify/DiscountCodeNode/...
@@ -23,8 +23,12 @@ CREATE TABLE IF NOT EXISTS campaigns (
   created_by          text NOT NULL DEFAULT 'human',       -- human | campaign-agent
   created_at          timestamptz NOT NULL DEFAULT now()
 );
--- At most one live campaign per shop.
+-- At most one always-on campaign per shop.
 CREATE UNIQUE INDEX IF NOT EXISTS campaigns_one_active ON campaigns (shop_domain) WHERE status = 'active';
+-- Scheduled campaigns run only inside [starts_at, ends_at) and take over from the always-on one while they run.
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS starts_at timestamptz;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS ends_at   timestamptz;
+CREATE INDEX IF NOT EXISTS campaigns_scheduled ON campaigns (shop_domain, starts_at) WHERE status = 'scheduled';
 
 CREATE TABLE IF NOT EXISTS discount_codes (
   code              text NOT NULL,
@@ -103,6 +107,9 @@ CREATE TABLE IF NOT EXISTS mock_shopify_discounts (
   discount_percent int  NOT NULL,
   created_at       timestamptz NOT NULL DEFAULT now()
 );
+-- Like Shopify's startsAt / endsAt: a scheduled campaign's codes only work inside its window.
+ALTER TABLE mock_shopify_discounts ADD COLUMN IF NOT EXISTS starts_at timestamptz;
+ALTER TABLE mock_shopify_discounts ADD COLUMN IF NOT EXISTS ends_at   timestamptz;
 CREATE TABLE IF NOT EXISTS mock_shopify_codes (
   shop_domain text NOT NULL,
   code        text NOT NULL,
@@ -120,4 +127,20 @@ CREATE TABLE IF NOT EXISTS mock_shopify_orders (
   total_cents    bigint NOT NULL,
   discount_code  text,
   created_at     timestamptz NOT NULL DEFAULT now()
+);
+
+-- Simulated Shopify customer accounts (on a real store, Shopify owns sign-in and Liquid exposes {{ customer }}).
+CREATE TABLE IF NOT EXISTS mock_shopify_customers (
+  id            bigserial PRIMARY KEY,
+  shop_domain   text NOT NULL,
+  email         text NOT NULL,
+  first_name    text NOT NULL,
+  password_hash text NOT NULL,                             -- scrypt, salt:hash
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (shop_domain, email)
+);
+CREATE TABLE IF NOT EXISTS mock_shopify_sessions (
+  token_hash  text PRIMARY KEY,                            -- sha256 of the bearer token; the token itself is never stored
+  customer_id bigint NOT NULL REFERENCES mock_shopify_customers(id) ON DELETE CASCADE,
+  expires_at  timestamptz NOT NULL
 );

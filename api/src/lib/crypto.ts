@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomInt, scryptSync, timingSafeEqual } from "node:crypto";
 import { config } from "../config.js";
 
 export const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
@@ -46,4 +46,18 @@ export function newCode(prefix: string, length = 8): string {
   let s = "";
   for (let i = 0; i < length; i++) s += ALPHABET[randomInt(ALPHABET.length)];
   return `${prefix}-${s}`;
+}
+
+/** Password hashing for the simulated store's customer accounts: scrypt with a random salt, stored as salt:hash. */
+export function hashPassword(password: string): string {
+  const salt = randomBytes(16);
+  return `${salt.toString("hex")}:${scryptSync(password, salt, 32).toString("hex")}`;
+}
+
+export function verifyPassword(password: string, stored: string): boolean {
+  const [salt, hash] = stored.split(":");
+  if (!salt || !hash) return false;
+  const actual = scryptSync(password, Buffer.from(salt, "hex"), 32);
+  const expected = Buffer.from(hash, "hex");
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
 }

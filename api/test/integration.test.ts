@@ -4,8 +4,10 @@ import type { FastifyInstance } from "fastify";
 import { db, migrate } from "../src/db/index.js";
 import { redis, createRedis } from "../src/lib/redis.js";
 import { allocateCode, defineScripts, IP_HOURLY_LIMIT, poolKey } from "../src/lib/pool.js";
-import { activate, createDraft } from "../src/lib/campaignService.js";
-import { MockShopifyClient } from "../src/shopify/client.js";
+import { activate, createDraft, pause, remove } from "../src/lib/campaignService.js";
+import { activeCampaignForShop, listCampaigns, liveCampaignForShop } from "../src/lib/campaigns.js";
+import { config } from "../src/config.js";
+import { DEMO_SHOP, MockShopifyClient } from "../src/shopify/client.js";
 import { shopifyWebhookHmac } from "../src/lib/crypto.js";
 import { createQueue } from "../src/queue/index.js";
 import { buildServer } from "../src/server.js";
@@ -110,5 +112,126 @@ describe("HTTP", () => {
 
   it("keeps the dashboard API behind the admin token", async () => {
     expect((await app.inject({ method: "GET", url: "/admin/overview" })).statusCode).toBe(401);
+  });
+});
+
+describe("scheduled campaigns", () => {
+  const sShop = `sched-${Date.now()}.myshopify.com`;
+  const mock = new MockShopifyClient();
+  const hour = 3_600_000;
+  const at = (ms: number) => new Date(Date.now() + ms).toISOString();
+  const draft = (name: string, startsAt?: string, endsAt?: string) =>
+    createDraft({ shopDomain: sShop, name, headline: "h", body: "b", cta: "c", discountPercent: 20, codePrefix: "S", startsAt, endsAt });
+
+  it("takes over from the always-on campaign only inside its window", async () => {
+    const always = await activate(mock, (await draft("always")).id);
+    const now = await activate(mock, (await draft("today", at(-hour), at(hour))).id);
+    expect(always.status).toBe("active");
+    expect(now.status).toBe("scheduled");
+    expect((await activeCampaignForShop(sShop))?.id).toBe(now.id);
+    // A future window doesn't change what shows today.
+    const later = await activate(mock, (await draft("later", at(48 * hour), at(72 * hour))).id);
+    expect((await liveCampaignForShop(sShop))?.id).toBe(now.id);
+    // Pausing the running one brings the always-on campaign back straight away.
+    await pause(now.id);
+    expect((await activeCampaignForShop(sShop))?.id).toBe(always.id);
+    expect(later.status).toBe("scheduled");
+  });
+
+  it("refuses overlapping schedules and bad windows", async () => {
+    const a = await activate(mock, (await draft("a", at(10 * hour), at(30 * hour))).id);
+    await expect(activate(mock, (await draft("b", at(20 * hour), at(40 * hour))).id)).rejects.toThrow(/overlaps "a"/);
+    await expect(draft("backwards", at(2 * hour), at(hour))).rejects.toThrow(/end after it starts/);
+    await expect(draft("half", at(hour))).rejects.toThrow(/both a start and an end/);
+    await pause(a.id);
+  });
+
+  it("only accepts a scheduled campaign's codes during its dates", async () => {
+    const future = await activate(mock, (await draft("future", at(100 * hour), at(124 * hour))).id);
+    const code = (await db.query("SELECT code FROM discount_codes WHERE campaign_id = $1 LIMIT 1", [future.id])).rows[0].code;
+    const r = await app.inject({ method: "GET", url: `/mock-shopify/discount/${code}?shop=${sShop}` });
+    expect(r.statusCode).toBe(422);
+    expect(r.json().error).toMatch(/isn't active yet/);
+    await pause(future.id);
+  });
+
+  it("lets the dashboard create a scheduled campaign", async () => {
+    const auth = { authorization: `Bearer ${config.ADMIN_TOKEN}` };
+    const bad = await app.inject({ method: "POST", url: "/admin/campaigns", headers: auth,
+      payload: { shopDomain: sShop, name: "x", headline: "h", body: "b", cta: "c", discountPercent: 20, startsAt: "tomorrow" } });
+    expect(bad.statusCode).toBe(400);
+    const ok = await app.inject({ method: "POST", url: "/admin/campaigns", headers: auth,
+      payload: { shopDomain: sShop, name: "Welcome 20%", headline: "h", body: "b", cta: "c", discountPercent: 20, startsAt: at(200 * hour), endsAt: at(200 * hour + 15 * 24 * hour) } });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json()).toMatchObject({ status: "draft", name: "Welcome 20%" });
+    expect(ok.json().startsAt).toBeTruthy();
+  });
+});
+
+describe("store customer accounts (simulated Shopify)", () => {
+  const email = `cust-${randomUUID()}@example.com`;
+
+  it("registers, signs in, reads the account and signs out", async () => {
+    const reg = await app.inject({ method: "POST", url: "/mock-shopify/account/register", payload: { email, password: "correct-horse", firstName: "Jo" } });
+    expect(reg.statusCode).toBe(200);
+    expect(reg.json().customer).toEqual({ email, firstName: "Jo" });
+    const dup = await app.inject({ method: "POST", url: "/mock-shopify/account/register", payload: { email, password: "correct-horse", firstName: "Jo" } });
+    expect(dup.statusCode).toBe(409);
+
+    const wrong = await app.inject({ method: "POST", url: "/mock-shopify/account/login", payload: { email, password: "nope-nope" } });
+    expect(wrong.statusCode).toBe(401);
+    const login = await app.inject({ method: "POST", url: "/mock-shopify/account/login", payload: { email: email.toUpperCase(), password: "correct-horse" } });
+    expect(login.statusCode).toBe(200);
+    const headers = { authorization: `Bearer ${login.json().token}` };
+
+    const me = await app.inject({ method: "GET", url: "/mock-shopify/account/me", headers });
+    expect(me.json()).toMatchObject({ customer: { email, firstName: "Jo" }, orders: [] });
+    await app.inject({ method: "POST", url: "/mock-shopify/account/logout", headers });
+    expect((await app.inject({ method: "GET", url: "/mock-shopify/account/me", headers })).statusCode).toBe(401);
+  });
+});
+
+describe("removing campaigns", () => {
+  const rShop = `remove-${Date.now()}.myshopify.com`;
+  const mock = new MockShopifyClient();
+  const draft = (name: string) => createDraft({ shopDomain: rShop, name, headline: "h", body: "b", cta: "c", discountPercent: 10, codePrefix: "R" });
+
+  it("deletes a campaign nobody got a code from, and switches its Shopify discount off", async () => {
+    const c = await activate(mock, (await draft("unused")).id);
+    expect(await remove(mock, c.id)).toEqual({ removed: "deleted" });
+    expect(await activeCampaignForShop(rShop)).toBeNull();
+    expect((await db.query("SELECT 1 FROM campaigns WHERE id = $1", [c.id])).rowCount).toBe(0);
+    const off = await db.query("SELECT bool_and(disabled) AS off FROM mock_shopify_codes WHERE discount_id = $1", [c.shopifyDiscountId]);
+    expect(off.rows[0].off).toBe(true);
+  });
+
+  it("archives a campaign with sign-ups, keeping issued codes valid", async () => {
+    const c = await activate(mock, (await draft("used")).id);
+    const r = await app.inject({ method: "POST", url: "/v1/popup/submit", headers: { "user-agent": "Mozilla/5.0" },
+      payload: { shop: rShop, campaignId: c.id, email: `rm-${randomUUID()}@example.com` } });
+    const code = r.json().code;
+    await writeBatch([{ type: "signup", shop: rShop, campaignId: c.id, email: "rm@example.com", phone: null, smsConsent: false,
+      visitorId: null, ipHash: "h", userAgent: "Mozilla", code, abuseScore: 0, at: new Date().toISOString() }], redis);
+    const res = await app.inject({ method: "DELETE", url: `/admin/campaigns/${c.id}`, headers: { authorization: `Bearer ${config.ADMIN_TOKEN}` } });
+    expect(res.json()).toEqual({ removed: "archived" });
+    expect((await listCampaigns(rShop)).map((x) => x.id)).not.toContain(c.id);
+    expect(await activeCampaignForShop(rShop)).toBeNull();
+    const ok = await app.inject({ method: "GET", url: `/mock-shopify/discount/${code}?shop=${rShop}` });
+    expect(ok.statusCode).toBe(200);
+  });
+});
+
+describe("campaign agent schedules (offline)", () => {
+  it("drafts a scheduled campaign from the merchant's words, in their time zone", async () => {
+    const res = await app.inject({
+      method: "POST", url: "/admin/agents/orchestrator", headers: { authorization: `Bearer ${config.ADMIN_TOKEN}` },
+      payload: { input: "Welcome 20% off for 15 days starting 2030-03-01", timezone: "America/Chicago" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().output).toMatch(/scheduled Fri, Mar 1 → Fri, Mar 15 \(15 days\)/);
+    const c = (await listCampaigns(DEMO_SHOP)).find((x) => x.startsAt && new Date(x.startsAt).toISOString() === "2030-03-01T06:00:00.000Z");
+    expect(c).toMatchObject({ status: "draft", discountPercent: 20, createdBy: "campaign-agent" });
+    expect(new Date(c!.endsAt!).toISOString()).toBe("2030-03-16T05:00:00.000Z");
+    await remove(new MockShopifyClient(), c!.id);
   });
 });

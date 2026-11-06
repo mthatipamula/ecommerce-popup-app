@@ -7,6 +7,19 @@ export interface CampaignConfig {
   theme: { primary?: string; background?: string; text?: string };
 }
 
+/** A signed-in storefront customer. On Shopify the theme passes {{ customer.email }} / {{ customer.first_name }}. */
+export interface Customer { email: string; firstName?: string | null }
+
+export interface PopupAppApi {
+  /** Show the popup now (e.g. from a "Get 15% off" link). */
+  open(): void;
+  /**
+   * Tell the popup who is signed in (null after sign-out). With postLogin it opens right away on the screen the
+   * customer lands on after signing in, instead of waiting for the guest timer or exit intent.
+   */
+  identify(customer: Customer | null, opts?: { postLogin?: boolean }): void;
+}
+
 export interface Issued { code: string; discountPercent: number; applyUrl: string; returning: boolean }
 
 export function createApi(base: string, shop: string) {

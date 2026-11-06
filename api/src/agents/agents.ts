@@ -4,6 +4,14 @@ import { activeCampaigns, campaignById, listCampaigns } from "../lib/campaigns.j
 import { createDraft } from "../lib/campaignService.js";
 import { campaignStats, dailySeries } from "../lib/metrics.js";
 import { runAgent, schema, type AgentDef } from "./runner.js";
+import { DEMO_SHOP } from "../shopify/client.js";
+import { describeWindow, merchantContext, parseSchedule, scheduleWindow, todayIn } from "../lib/schedule.js";
+
+/** The merchant's time zone and shop for this request (set by the dashboard API); UTC and all shops otherwise. */
+const tz = () => merchantContext.getStore()?.timezone ?? "UTC";
+const ctxShop = () => merchantContext.getStore()?.shop;
+/** The dashboard adds a context line with today's date for the model; offline parsing must not read dates from it. */
+const CONTEXT_LINE = /\[Context:[^\]]*\]/gi;
 
 /**
  * Four specialist agents and one orchestrator. None of them sits on the shopper's request path:
@@ -30,7 +38,10 @@ Rules for the copy:
 - discount_percent between 5 and 30 unless the merchant's brief asks for something else; when past campaigns show results, learn from them.
 - Never promise anything the brief or store profile doesn't support (no "free shipping", no "sitewide" unless stated).
 - theme colours must have readable contrast (dark text on light background or the reverse).
-Reply with two or three sentences on the choices you made. The draft is not live until the merchant activates it.`,
+Schedule:
+- If the brief names when it should run (a date, "tomorrow", "for 15 days", "from Dec 1 to Dec 15", a shopping day like Black Friday), set starts_on to the first day (YYYY-MM-DD) and days to how many consecutive days it runs. Resolve dates from "Today" in the request's context line, always picking the next occurrence.
+- Otherwise set starts_on to "" and days to 0: an always-on campaign.
+Reply with two or three sentences on the choices you made, including the schedule. The draft is not live until the merchant activates it.`,
   tools: [
     {
       name: "get_store_profile",
@@ -64,31 +75,45 @@ Reply with two or three sentences on the choices you made. The draft is not live
           required: ["primary", "background", "text"],
           additionalProperties: false,
         },
+        starts_on: { type: "string", description: "First day YYYY-MM-DD in the merchant's time zone, or \"\" for always on" },
+        days: { type: "integer", minimum: 0, maximum: 366, description: "Consecutive days it runs (1 = that day only), or 0 for always on" },
       }),
       run: async (i) => {
+        const scheduled = /^\d{4}-\d{2}-\d{2}$/.test(i.starts_on ?? "") && i.days > 0;
+        const window = scheduled ? scheduleWindow(i.starts_on, Math.min(i.days, 366), tz()) : null;
         const c = await createDraft({
           shopDomain: i.shop, name: i.name, headline: i.headline.slice(0, 60), body: i.body.slice(0, 140), cta: i.cta.slice(0, 24),
           discountPercent: Math.min(Math.max(i.discount_percent, 1), 90), codePrefix: i.code_prefix, theme: i.theme, createdBy: "campaign-agent",
+          ...(window ?? {}),
         });
-        return { campaignId: c.id, status: c.status };
+        return { campaignId: c.id, status: c.status, schedule: describeWindow(c.startsAt, c.endsAt, tz()) };
       },
     },
   ],
   async offline(input, call) {
-    const { shop, brief } = JSON.parse(input) as { shop: string; brief: string };
+    const { shop, brief: raw } = JSON.parse(input) as { shop: string; brief: string };
+    const brief = raw.replace(CONTEXT_LINE, " ");
     const profile = await call("get_store_profile", { shop });
     await call("get_campaign_history", { shop });
     const asked = /(\d{1,2})\s*%/.exec(brief);
     const percent = asked ? Number(asked[1]) : 15;
+    const when = parseSchedule(brief, todayIn(tz()));
+    const label = when?.label ?? "Welcome";
     const types = [...new Set(profile.products.map((p: any) => p.productType))].slice(0, 2).join(" and ").toLowerCase();
+    const headline = !when ? `Take ${percent}% off your first order`
+      : when.label ? `${when.label}: ${percent}% off`
+      : when.days === 1 ? `Today only: ${percent}% off` : `${percent}% off for ${when.days} days only`;
     const draft = await call("save_campaign_draft", {
-      shop, name: `${profile.name} welcome ${percent}%`,
-      headline: `Take ${percent}% off your first order`,
+      shop, name: `${label} ${percent}%`,
+      headline,
       body: `Join ${profile.name} for early access to new ${types} drops. Add your number for text-only deals.`,
-      cta: "Unlock my code", discount_percent: percent, code_prefix: "WELCOME",
-      theme: { primary: "#1f6feb", background: "#ffffff", text: "#0b1220" },
+      cta: `Unlock my ${percent}% off`, discount_percent: percent,
+      code_prefix: `${label.replace(/[^A-Za-z]/g, "").slice(0, 8).toUpperCase()}${percent}`,
+      theme: { primary: "#0f766e", background: "#ffffff", text: "#0b1220" },
+      starts_on: when?.startDate ?? "", days: when?.days ?? 0,
     });
-    return `Drafted a ${percent}% welcome offer for ${profile.name} (campaign ${draft.campaignId}). The copy leads with the discount and the ${types} range; activate it from the dashboard to go live.`;
+    return `Drafted "${label} ${percent}%" for ${profile.name}, ${draft.schedule === "always on" ? "always on" : `scheduled ${draft.schedule}`}. `
+      + `Click ${when ? "Schedule" : "Activate"} next to it in Campaigns to put it live.`;
   },
 };
 
@@ -298,7 +323,7 @@ export const orchestrator: AgentDef = {
   name: "orchestrator",
   effort: "medium",
   system: `You are the merchant's assistant for their Shopify popup. You don't do the work yourself; you hand it to specialist agents:
-- run_campaign_agent: design a new popup draft from a brief.
+- run_campaign_agent: design a new popup draft from a brief, including when it runs (a date, N consecutive days, or always on). Pass the merchant's words about dates and the context line through in the brief.
 - run_offer_agent: review a live campaign's discount and maybe propose a change.
 - run_abuse_agent: review flagged sign-ups for bots and code farming.
 - run_insights_agent: answer questions about performance.
@@ -309,7 +334,10 @@ Nothing you do goes live on its own: drafts need activating and offers need appl
       name: "list_campaigns",
       description: "All campaigns with id, shop, name, status and discount.",
       input_schema: schema({}),
-      run: async () => (await listCampaigns()).map((c) => ({ id: c.id, shop: c.shopDomain, name: c.name, status: c.status, discountPercent: c.discountPercent })),
+      run: async () => (await listCampaigns(ctxShop())).map((c) => ({
+        id: c.id, shop: c.shopDomain, name: c.name, status: c.status, discountPercent: c.discountPercent,
+        schedule: describeWindow(c.startsAt, c.endsAt, tz()),
+      })),
     },
     {
       name: "run_campaign_agent",
@@ -337,14 +365,14 @@ Nothing you do goes live on its own: drafts need activating and offers need appl
     },
   ],
   async offline(input, call) {
-    const q = input.toLowerCase();
+    const q = input.replace(CONTEXT_LINE, " ").toLowerCase();
     const campaigns = await call("list_campaigns", {});
     const live = campaigns.find((c: any) => c.status === "active");
     const parts: string[] = [];
     if (/fraud|abuse|bot|spam|farm/.test(q)) parts.push((await call("run_abuse_agent", {})).output);
     if (/discount|offer|optimi|percent|margin/.test(q) && live) parts.push((await call("run_offer_agent", { campaign_id: live.id })).output);
-    if (/create|new popup|design|launch|draft|campaign for/.test(q)) {
-      parts.push((await call("run_campaign_agent", { shop: live?.shop ?? "northwind-running.myshopify.com", brief: input })).output);
+    if (/create|new popup|design|launch|draft|campaign for|schedule|welcome|\d+\s*% off|popup (on|for|from)/.test(q)) {
+      parts.push((await call("run_campaign_agent", { shop: live?.shop ?? ctxShop() ?? DEMO_SHOP, brief: input })).output);
     }
     if (!parts.length || /how|perform|report|stats|result/.test(q)) parts.push((await call("run_insights_agent", { question: input })).output);
     return parts.join("\n\n");

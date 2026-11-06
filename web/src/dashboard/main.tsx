@@ -6,8 +6,11 @@ interface Stats {
   campaignId: string; name: string; status: string; discountPercent: number; views: number; signups: number; smsOptIns: number;
   redemptions: number; revenueCents: number; flagged: number; blocked: number; poolSize: number; signupRate: number; redemptionRate: number;
 }
-interface Campaign { id: string; name: string; status: string; headline: string; discountPercent: number; createdBy: string }
-interface Overview { provider: string; model: string | null; campaigns: Campaign[]; stats: Stats[] }
+interface Campaign {
+  id: string; name: string; status: string; headline: string; discountPercent: number; createdBy: string;
+  startsAt: string | null; endsAt: string | null;
+}
+interface Overview { provider: string; model: string | null; campaigns: Campaign[]; stats: Stats[]; liveCampaignId: string | null }
 interface Signup { id: number; email: string; phone: string | null; sms_consent: boolean; code: string; abuse_status: string; code_status: string; created_at: string }
 interface Rec { id: number; campaign_id: string; discount_percent: number; rationale: string; status: string }
 interface ToolCall { tool: string; input: unknown; result: any; error?: string }
@@ -24,13 +27,17 @@ function useApi() {
       headers: { Authorization: `Bearer ${token}`, ...(init?.body ? { "Content-Type": "application/json" } : {}) },
       body: init?.body ? JSON.stringify(init.body) : undefined,
     });
-    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `${r.status}`);
+    if (!r.ok) {
+      const b = await r.json().catch(() => ({}));
+      throw new Error(b.message ?? b.error ?? `${r.status}`);
+    }
     return r.json();
   }, [token]);
   return { call, token, setToken: (t: string) => { localStorage.setItem("admin-token", t); setToken(t); } };
 }
 
 const PROMPTS = [
+  "Welcome 20% off for 15 days starting tomorrow",
   "Draft a Black Friday popup for Northwind Running with 20% off",
   "Check the latest sign-ups for fraud",
   "Is our discount too generous? Review the live campaign's offer",
@@ -55,17 +62,25 @@ function App() {
   }, [call]);
   useEffect(() => { refresh(); const t = setInterval(refresh, 3000); return () => clearInterval(t); }, [refresh]);
 
-  async function act(path: string) {
-    try { await call(path, { method: "POST" }); await refresh(); } catch (e) { setError((e as Error).message); }
+  async function act(path: string, method = "POST") {
+    try { await call(path, { method }); await refresh(); } catch (e) { setError((e as Error).message); }
+  }
+  function removeCampaign(c: Campaign, s?: Stats) {
+    const used = (s?.signups ?? 0) > 0;
+    const msg = used
+      ? `Remove "${c.name}"? It stops showing and leaves this list. The ${s!.signups} code(s) already sent to shoppers keep working, and its results stay in the totals.`
+      : `Remove "${c.name}"? It has no sign-ups, so it will be deleted.`;
+    if (window.confirm(msg)) act(`/admin/campaigns/${c.id}`, "DELETE");
   }
   async function ask(text = prompt) {
     setRunning(true); setResult(null);
-    try { setResult(await call<AgentResult>("/admin/agents/orchestrator", { method: "POST", body: { input: text } })); await refresh(); }
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;   // schedules are days in the merchant's time zone
+    try { setResult(await call<AgentResult>("/admin/agents/orchestrator", { method: "POST", body: { input: text, timezone } })); await refresh(); }
     catch (e) { setError((e as Error).message); }
     finally { setRunning(false); }
   }
 
-  const live = o?.stats.find((s) => s.status === "active");
+  const live = o?.stats.find((s) => s.campaignId === o.liveCampaignId);
   const totals = (o?.stats ?? []).reduce((t, s) => ({
     views: t.views + s.views, signups: t.signups + s.signups, sms: t.sms + s.smsOptIns, redemptions: t.redemptions + s.redemptions, revenue: t.revenue + s.revenueCents,
   }), { views: 0, signups: 0, sms: 0, redemptions: 0, revenue: 0 });
@@ -92,7 +107,10 @@ function App() {
 
       <section className="panel agents">
         <h2>Ask the agents</h2>
-        <p className="muted">The orchestrator hands work to four specialists: campaign, offer, abuse and insights. Nothing goes live without your click.</p>
+        <p className="muted">
+          Create campaigns here: say the offer and when it runs, e.g. "Welcome 20% on Nov 20" or "for 15 days from Dec 1" (no dates = always on).
+          The orchestrator hands work to four specialists: campaign, offer, abuse and insights. Nothing goes live until you click Activate or Schedule.
+        </p>
         <div className="chips">{PROMPTS.map((p) => <button key={p} className="chip" onClick={() => { setPrompt(p); ask(p); }} disabled={running}>{p}</button>)}</div>
         <form onSubmit={(e) => { e.preventDefault(); ask(); }}>
           <input value={prompt} onChange={(e) => setPrompt(e.target.value)} aria-label="Request for the agents" />
@@ -119,22 +137,28 @@ function App() {
 
       <section className="panel">
         <h2>Campaigns</h2>
+        <p className="muted">A scheduled campaign takes over from the always-on one during its dates, then the always-on one comes back.</p>
         <table>
-          <thead><tr><th>Name</th><th>Status</th><th>Offer</th><th>Views</th><th>Sign-ups</th><th>Redeemed</th><th>Revenue</th><th>Flagged / blocked</th><th>By</th><th /></tr></thead>
+          <thead><tr><th>Name</th><th>Status</th><th>Actions</th><th>Schedule</th><th>Offer</th><th>Views</th><th>Sign-ups</th><th>Redeemed</th><th>Revenue</th><th>Flagged / blocked</th><th>By</th></tr></thead>
           <tbody>
             {o?.campaigns.map((c) => {
               const s = o.stats.find((x) => x.campaignId === c.id);
+              const p = phase(c);
               return (
                 <tr key={c.id}>
-                  <td title={c.headline}>{c.name}</td>
-                  <td><span className={`pill ${c.status}`}>{c.status}</span></td>
+                  <td title={c.headline}>{c.name}{c.id === o.liveCampaignId && <span className="pill live">showing now</span>}</td>
+                  <td><span className={`pill ${p}`}>{p}</span></td>
+                  <td className="actions">
+                    {c.status === "active" || (c.status === "scheduled" && p !== "ended")
+                      ? <button className="small ghost" onClick={() => act(`/admin/campaigns/${c.id}/pause`)}>Pause</button>
+                      : p !== "ended" && <button className="small" onClick={() => act(`/admin/campaigns/${c.id}/activate`)}>{c.startsAt ? "Schedule" : "Activate"}</button>}
+                    <button className="small ghost danger" onClick={() => removeCampaign(c, s)}>Remove</button>
+                  </td>
+                  <td>{scheduleLabel(c.startsAt, c.endsAt)}</td>
                   <td>{c.discountPercent}%</td>
                   <td>{s?.views ?? 0}</td><td>{s?.signups ?? 0}</td><td>{s?.redemptions ?? 0}</td><td>{usd(s?.revenueCents ?? 0)}</td>
                   <td>{s?.flagged ?? 0} / {s?.blocked ?? 0}</td>
                   <td>{c.createdBy}</td>
-                  <td>{c.status === "active"
-                    ? <button className="small ghost" onClick={() => act(`/admin/campaigns/${c.id}/pause`)}>Pause</button>
-                    : <button className="small" onClick={() => act(`/admin/campaigns/${c.id}/activate`)}>Activate</button>}</td>
                 </tr>
               );
             })}
@@ -172,6 +196,27 @@ function App() {
       </section>
     </div>
   );
+}
+
+// ------------------------------------------------------------------ scheduling
+
+const DAY_MS = 86_400_000;
+const fmtDay = (d: Date) => d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+
+function scheduleLabel(startsAt: string | null, endsAt: string | null): string {
+  if (!startsAt || !endsAt) return "Always on";
+  const start = new Date(startsAt), last = new Date(new Date(endsAt).getTime() - 1);
+  const days = Math.round((new Date(endsAt).getTime() - start.getTime()) / DAY_MS);
+  return days <= 1 ? fmtDay(start) : `${fmtDay(start)} → ${fmtDay(last)} · ${days} days`;
+}
+
+/** What the merchant cares about: is it showing, waiting for its dates, or over? */
+function phase(c: Campaign): string {
+  if (c.status !== "scheduled" || !c.startsAt || !c.endsAt) return c.status;
+  const now = Date.now();
+  if (now < Date.parse(c.startsAt)) return "upcoming";
+  if (now >= Date.parse(c.endsAt)) return "ended";
+  return "running";
 }
 
 function Kpi({ label, value, sub }: { label: string; value: string; sub?: string }) {
