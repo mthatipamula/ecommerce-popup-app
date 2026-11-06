@@ -35,3 +35,14 @@ th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line
 .error { background: #fee2e2; color: #991b1b; padding: 10px 14px; border-radius: 8px; }
 td.actions { display: flex; gap: 6px; }
 button.danger { color: #dc2626; border-color: color-mix(in srgb, #dc2626 40%, var(--line)); }
+
+/* Sign-in screen: shown when there's no admin token or the API rejects it. */
+.signin { min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; }
+.signin form { width: 100%; max-width: 420px; display: grid; gap: 10px; padding: 24px; }
+.signin h1 { font-size: 20px; margin: 0; }
+.signin label { font-weight: 500; font-size: 13px; }
+.signin input { width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); font: inherit; }
+.signin input:focus-visible, .signin button:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.signin input[aria-invalid="true"] { border-color: #dc2626; }
+.signin .help { font-size: 12px; margin: 4px 0 0; }
+.signin code { font-size: 11px; overflow-wrap: anywhere; }
