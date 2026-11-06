@@ -79,7 +79,12 @@ The agents use a manual tool-use loop on the Claude Messages API (`@anthropic-ai
 
 ## Campaign schedules and signed-in customers
 
-**Schedules.** On the dashboard, **+ New campaign** creates an offer that is either *always on*, runs *on a specific date*, or runs *for N consecutive days* (for example "Welcome 20%" for 15 days). Days run midnight to midnight in the merchant's time zone.
+**Schedules.** Campaigns are created by asking the agents on the dashboard, in plain words: "Welcome 20% on Nov 20", "Welcome 20% off for 15 days starting tomorrow", "Draft a Black Friday popup with 20% off". The campaign agent drafts the popup with its schedule: *always on* (no dates given), *a specific date*, or *N consecutive days*. Days run midnight to midnight in the merchant's time zone, which the dashboard sends with each request. Nothing goes live until the merchant clicks **Schedule** (or **Activate** for always-on).
+
+**Pause and remove.** Every campaign has **Pause** (stop showing, keep it) and **Remove**:
+
+- A campaign no shopper got a code from is deleted, and its Shopify discount is switched off.
+- One with sign-ups is archived instead: hidden from the list, its results kept in the totals, and codes already sent still work.
 
 - A scheduled campaign takes over from the always-on campaign during its dates; afterwards the always-on one shows again. Two scheduled campaigns can't overlap.
 - Its Shopify discount gets the same `startsAt` / `endsAt`, so its codes only work during those dates.

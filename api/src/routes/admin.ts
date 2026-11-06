@@ -4,7 +4,8 @@ import { db } from "../db/index.js";
 import { config } from "../config.js";
 import { safeEqual } from "../lib/crypto.js";
 import { listCampaigns, liveCampaignForShop } from "../lib/campaigns.js";
-import { activate, applyRecommendation, createDraft, pause } from "../lib/campaignService.js";
+import { activate, applyRecommendation, createDraft, pause, remove } from "../lib/campaignService.js";
+import { merchantContext, todayIn, validTimezone } from "../lib/schedule.js";
 import { campaignStats, dailySeries } from "../lib/metrics.js";
 import { shopify, DEMO_SHOP } from "../shopify/client.js";
 import { AGENTS } from "../agents/agents.js";
@@ -35,9 +36,10 @@ export async function adminRoutes(app: FastifyInstance) {
   app.get("/admin/overview", async () => ({
     provider,
     model: provider === "offline" ? null : config.CLAUDE_MODEL,
-    campaigns: await listCampaigns(),
+    // The dashboard is the demo shop's (in production: the shop from the App Bridge session token).
+    campaigns: await listCampaigns(DEMO_SHOP),
     liveCampaignId: (await liveCampaignForShop(DEMO_SHOP))?.id ?? null,
-    stats: await campaignStats(),
+    stats: await campaignStats(undefined, DEMO_SHOP),
     series: await dailySeries(14),
   }));
 
@@ -48,8 +50,8 @@ export async function adminRoutes(app: FastifyInstance) {
         `SELECT s.id, s.email, s.phone, s.sms_consent, s.code, s.abuse_score, s.abuse_status, s.created_at,
                 d.status AS code_status, d.order_total_cents
          FROM signups s LEFT JOIN discount_codes d ON d.shop_domain = s.shop_domain AND d.code = s.code
-         ORDER BY s.id DESC LIMIT $1`,
-        [limit],
+         WHERE s.shop_domain = $2 ORDER BY s.id DESC LIMIT $1`,
+        [limit, DEMO_SHOP],
       )
     ).rows;
   });
@@ -67,6 +69,7 @@ export async function adminRoutes(app: FastifyInstance) {
     await pause((req.params as { id: string }).id);
     return { ok: true };
   });
+  app.delete("/admin/campaigns/:id", async (req) => remove(shopify, (req.params as { id: string }).id));
 
   app.get("/admin/recommendations", async () =>
     (await db.query("SELECT * FROM offer_recommendations ORDER BY id DESC LIMIT 20")).rows);
@@ -80,9 +83,14 @@ export async function adminRoutes(app: FastifyInstance) {
   app.post("/admin/agents/:name", async (req, reply) => {
     const agent = AGENTS[(req.params as { name: string }).name];
     if (!agent) return reply.code(404).send({ error: "unknown agent" });
-    const body = (req.body ?? {}) as { input?: unknown };
-    const input = typeof body.input === "string" ? body.input : JSON.stringify(body.input ?? {});
-    return runAgent(agent, input);
+    const body = (req.body ?? {}) as { input?: unknown; timezone?: unknown };
+    const timezone = validTimezone(body.timezone) ? body.timezone : "UTC";
+    let input = typeof body.input === "string" ? body.input : JSON.stringify(body.input ?? {});
+    // Lets the model resolve "tomorrow" or "Nov 20"; schedules are whole days in the merchant's time zone.
+    const today = todayIn(timezone);
+    const weekday = new Date(`${today}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "long", timeZone: "UTC" });
+    input += `\n\n[Context: shop ${DEMO_SHOP}; merchant time zone ${timezone}; today is ${weekday} ${today}.]`;
+    return merchantContext.run({ shop: DEMO_SHOP, timezone }, () => runAgent(agent, input));
   });
 
   app.get("/admin/agent-runs", async () =>

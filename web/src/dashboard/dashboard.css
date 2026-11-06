@@ -33,21 +33,5 @@ th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line
 .trace { margin: 6px 0 0; padding-left: 20px; color: var(--muted); } .trace code { color: var(--fg); } .sub { color: var(--muted); } .err { color: #dc2626; }
 .rec { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 6px 0; } .rec span { flex: 1; color: var(--muted); }
 .error { background: #fee2e2; color: #991b1b; padding: 10px 14px; border-radius: 8px; }
-.new-campaign.closed { display: flex; align-items: center; gap: 12px; justify-content: space-between; flex-wrap: wrap; }
-.new-campaign.closed .muted { margin: 0; }
-.new-campaign form { display: grid; gap: 14px; }
-.fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 12px; }
-.fields .wide { grid-column: span 3; }
-.new-campaign label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
-.new-campaign input:not([type="radio"]):not([type="checkbox"]), .new-campaign textarea {
-  padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); font: inherit; width: 100%;
-}
-.new-campaign textarea { resize: vertical; }
-.schedule { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px 4px; margin: 0; display: flex; flex-wrap: wrap; gap: 6px 18px; }
-.schedule legend { padding: 0 6px; font-weight: 600; font-size: 13px; }
-.new-campaign label.radio { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--fg); }
-.schedule-inputs { flex-basis: 100%; display: flex; gap: 12px; flex-wrap: wrap; } .schedule-inputs label { width: 180px; }
-.schedule .summary { flex-basis: 100%; margin: 4px 0 8px; }
-.ok-msg { color: #16a34a; margin: 0; } .new-campaign .err { margin: 0; }
-.actions { display: flex; gap: 8px; }
-@media (max-width: 700px) { .fields { grid-template-columns: 1fr; } .fields .wide { grid-column: auto; } }
+td.actions { display: flex; gap: 6px; }
+button.danger { color: #dc2626; border-color: color-mix(in srgb, #dc2626 40%, var(--line)); }

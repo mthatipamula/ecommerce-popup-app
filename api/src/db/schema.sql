@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
   id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   shop_domain         text NOT NULL REFERENCES shops(shop_domain),
   name                text NOT NULL,
-  status              text NOT NULL DEFAULT 'draft',       -- draft | active | scheduled | paused
+  status              text NOT NULL DEFAULT 'draft',       -- draft | active | scheduled | paused | archived
   discount_percent    int  NOT NULL CHECK (discount_percent BETWEEN 1 AND 90),
   code_prefix         text NOT NULL DEFAULT 'WELCOME',
   shopify_discount_id text,                                -- gid://shopify/DiscountCodeNode/...

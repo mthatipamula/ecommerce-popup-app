@@ -1,7 +1,7 @@
 import { db } from "../db/index.js";
 import { redis } from "./redis.js";
 import { campaignById, invalidateShop, type Campaign } from "./campaigns.js";
-import { mintCodes } from "./pool.js";
+import { mintCodes, poolKey } from "./pool.js";
 import { newCode } from "./crypto.js";
 import type { ShopifyClient } from "../shopify/client.js";
 
@@ -58,7 +58,7 @@ export async function createDraft(d: CampaignDraft): Promise<Campaign> {
  */
 export async function activate(shopify: ShopifyClient, id: string): Promise<Campaign> {
   let c = await campaignById(id);
-  if (!c) throw new CampaignError("campaign not found", 404);
+  if (!c || c.status === "archived") throw new CampaignError("campaign not found", 404);
   const scheduled = Boolean(c.startsAt && c.endsAt);
   if (scheduled) {
     if (new Date(c.endsAt!).getTime() <= Date.now()) throw new CampaignError("This campaign's schedule has already ended");
@@ -102,6 +102,44 @@ export async function pause(id: string): Promise<void> {
   if (!c) throw new CampaignError("campaign not found", 404);
   await db.query("UPDATE campaigns SET status = 'paused' WHERE id = $1", [id]);
   await invalidateShop(c.shopDomain);
+}
+
+/**
+ * Remove a campaign from the dashboard. It stops showing first. If no shopper ever got one of its codes, it is
+ * deleted outright and its Shopify discount switched off. Otherwise it is archived: hidden from the list but kept
+ * for reporting, and codes already sent to shoppers keep working; its unissued pool codes are thrown away.
+ */
+export async function remove(shopify: ShopifyClient, id: string): Promise<{ removed: "deleted" | "archived" }> {
+  const c = await campaignById(id);
+  if (!c) throw new CampaignError("campaign not found", 404);
+  const used = await db.query(
+    `SELECT EXISTS (SELECT 1 FROM signups WHERE campaign_id = $1)
+         OR EXISTS (SELECT 1 FROM discount_codes WHERE campaign_id = $1 AND status <> 'available') AS used`,
+    [id],
+  );
+  await redis.del(poolKey(id));
+  if (used.rows[0].used) {
+    await db.query("UPDATE campaigns SET status = 'archived' WHERE id = $1", [id]);
+    await db.query("DELETE FROM discount_codes WHERE campaign_id = $1 AND status = 'available'", [id]);
+    await invalidateShop(c.shopDomain);
+    return { removed: "archived" };
+  }
+  if (c.shopifyDiscountId) await shopify.deactivateDiscount(c.shopDomain, c.shopifyDiscountId);
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("DELETE FROM offer_recommendations WHERE campaign_id = $1", [id]);
+    await client.query("DELETE FROM discount_codes WHERE campaign_id = $1", [id]);
+    await client.query("DELETE FROM campaigns WHERE id = $1", [id]);
+    await client.query("COMMIT");
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+  await invalidateShop(c.shopDomain);
+  return { removed: "deleted" };
 }
 
 /** A new discount percentage means a new Shopify discount, so an accepted offer becomes a new campaign version. */

@@ -20,7 +20,9 @@ export interface CampaignStats {
 }
 
 /** Live counters (views, pool) come from Redis; everything that must be exact comes from Postgres. */
-export async function campaignStats(campaignId?: string): Promise<CampaignStats[]> {
+export async function campaignStats(campaignId?: string, shop?: string): Promise<CampaignStats[]> {
+  const where = campaignId ? "WHERE c.id = $1" : shop ? "WHERE c.shop_domain = $1" : "";
+  const args = campaignId ? [campaignId] : shop ? [shop] : [];
   const r = await db.query(
     `SELECT c.id, c.name, c.status, c.discount_percent,
        (SELECT count(*) FROM signups s WHERE s.campaign_id = c.id)::int AS signups,
@@ -29,8 +31,8 @@ export async function campaignStats(campaignId?: string): Promise<CampaignStats[
        (SELECT count(*) FROM signups s WHERE s.campaign_id = c.id AND s.abuse_status = 'blocked')::int AS blocked,
        (SELECT count(*) FROM discount_codes d WHERE d.campaign_id = c.id AND d.status = 'redeemed')::int AS redemptions,
        (SELECT coalesce(sum(order_total_cents), 0) FROM discount_codes d WHERE d.campaign_id = c.id AND d.status = 'redeemed')::bigint AS revenue
-     FROM campaigns c ${campaignId ? "WHERE c.id = $1" : ""} ORDER BY c.created_at DESC`,
-    campaignId ? [campaignId] : [],
+     FROM campaigns c ${where} ORDER BY c.created_at DESC`,
+    args,
   );
   return Promise.all(r.rows.map(async (row) => {
     const [views, poolSize] = await Promise.all([redis.hget(statsKey(row.id), "views"), redis.llen(poolKey(row.id))]);

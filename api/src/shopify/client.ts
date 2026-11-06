@@ -24,6 +24,8 @@ export interface ShopifyClient {
   createDiscount(shop: string, input: DiscountInput): Promise<string>;
   addCodes(shop: string, discountId: string, codes: string[]): Promise<void>;
   disableCode(shop: string, discountId: string, code: string): Promise<void>;
+  /** Stops every code of the discount working (used when a campaign that never issued a code is removed). */
+  deactivateDiscount(shop: string, discountId: string): Promise<void>;
   shopProfile(shop: string): Promise<ShopProfile>;
 }
 
@@ -61,6 +63,10 @@ export class MockShopifyClient implements ShopifyClient {
 
   async disableCode(shop: string, _discountId: string, code: string) {
     await db.query("UPDATE mock_shopify_codes SET disabled = true WHERE shop_domain = $1 AND code = $2", [shop, code]);
+  }
+
+  async deactivateDiscount(shop: string, discountId: string) {
+    await db.query("UPDATE mock_shopify_codes SET disabled = true WHERE shop_domain = $1 AND discount_id = $2", [shop, discountId]);
   }
 
   async shopProfile(shop: string): Promise<ShopProfile> {
@@ -125,6 +131,13 @@ export class AdminApiShopifyClient implements ShopifyClient {
     // Deleting a single redeem code needs its Shopify ID (a lookup by code first). Out of scope for the demo:
     // the code is marked revoked in our database and the order webhook rejects it as fraud.
     console.warn(`disableCode(${code}): revoked locally only in real mode`);
+  }
+
+  async deactivateDiscount(shop: string, discountId: string) {
+    const data = await this.graphql<any>(shop, `
+      mutation Off($id: ID!) { discountCodeDeactivate(id: $id) { userErrors { field message } } }`, { id: discountId });
+    const errs = data.discountCodeDeactivate.userErrors;
+    if (errs.length) throw new Error(JSON.stringify(errs));
   }
 
   async shopProfile(shop: string): Promise<ShopProfile> {

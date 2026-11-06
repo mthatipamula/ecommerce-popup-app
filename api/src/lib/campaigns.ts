@@ -6,7 +6,7 @@ export interface Campaign {
   shopDomain: string;
   name: string;
   /** active = always on; scheduled = runs only between startsAt and endsAt, taking over from the active one. */
-  status: "draft" | "active" | "scheduled" | "paused";
+  status: "draft" | "active" | "scheduled" | "paused" | "archived";
   discountPercent: number;
   codePrefix: string;
   shopifyDiscountId: string | null;
@@ -29,10 +29,11 @@ export async function campaignById(id: string): Promise<Campaign | null> {
   return r.rows[0] ?? null;
 }
 
+/** Campaigns the merchant manages; removed (archived) ones are left out. */
 export async function listCampaigns(shop?: string): Promise<Campaign[]> {
   const r = shop
-    ? await db.query(`SELECT ${COLS} FROM campaigns WHERE shop_domain = $1 ORDER BY created_at DESC`, [shop])
-    : await db.query(`SELECT ${COLS} FROM campaigns ORDER BY created_at DESC`);
+    ? await db.query(`SELECT ${COLS} FROM campaigns WHERE shop_domain = $1 AND status <> 'archived' ORDER BY created_at DESC`, [shop])
+    : await db.query(`SELECT ${COLS} FROM campaigns WHERE status <> 'archived' ORDER BY created_at DESC`);
   return r.rows;
 }
 
