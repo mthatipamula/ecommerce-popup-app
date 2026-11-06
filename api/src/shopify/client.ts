@@ -47,7 +47,17 @@ const DEMO_PRODUCTS: ShopProfile["products"] = [
   { title: "Storm Shell Running Jacket", priceCents: 13500, productType: "Apparel" },
   { title: "Compression Running Tights", priceCents: 7800, productType: "Apparel" },
   { title: "Hydration Vest 5L", priceCents: 11000, productType: "Gear" },
+  { title: "Trail Running Poles", priceCents: 9500, productType: "Gear" },
+  { title: "Reflective Night Vest", priceCents: 3500, productType: "Gear" },
+  { title: "Rechargeable Head Torch", priceCents: 5500, productType: "Gear" },
+  { title: "Soft Flask 500ml", priceCents: 2800, productType: "Gear" },
+  { title: "GPS Running Watch", priceCents: 29900, productType: "Gear" },
   { title: "Merino Crew Socks (3-pack)", priceCents: 2400, productType: "Accessories" },
+  { title: "Lightweight Running Cap", priceCents: 3000, productType: "Accessories" },
+  { title: "Running Belt Phone Pouch", priceCents: 2600, productType: "Accessories" },
+  { title: "Sweat-Wicking Headband", priceCents: 1600, productType: "Accessories" },
+  { title: "Polarized Sport Sunglasses", priceCents: 8500, productType: "Accessories" },
+  { title: "Touchscreen Running Gloves", priceCents: 3200, productType: "Accessories" },
 ];
 
 export class MockShopifyClient implements ShopifyClient {

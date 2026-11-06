@@ -11,6 +11,7 @@ interface Session { token: string; customer: Customer }
 const usd = (c: number) => `$${(c / 100).toFixed(2)}`;
 const SWATCH: Record<string, string> = { Shoes: "#0f766e", Apparel: "#1d4ed8", Gear: "#9a3412", Accessories: "#6d28d9" };
 const SESSION_KEY = "demo:session";
+const catId = (cat: string) => `shop-${cat.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
 
 function loadSession(): Session | null {
   try { return JSON.parse(localStorage.getItem(SESSION_KEY) ?? "null"); } catch { return null; }
@@ -99,6 +100,8 @@ function Store() {
     return () => { live = false; clearTimeout(t); };
   }, [code]);
 
+  // One section per product line, in catalogue order (Shoes, Apparel, Gear, Accessories).
+  const categories = [...new Set(products.map((p) => p.productType))];
   const items = Object.entries(cart).filter(([, q]) => q > 0);
   const subtotal = items.reduce((s, [t, q]) => s + (products.find((p) => p.title === t)?.priceCents ?? 0) * q, 0);
   const count = items.reduce((s, [, q]) => s + q, 0);
@@ -128,7 +131,7 @@ function Store() {
       <div className="banner">Simulated Shopify store for the demo · the popup below is the real widget, served exactly as on a live store</div>
       <header>
         <strong className="logo" role="button" tabIndex={0} onClick={() => setView("shop")}>NORTHWIND<span>RUNNING</span></strong>
-        <nav>Shoes · Apparel · Gear</nav>
+        <nav>{categories.map((cat, i) => <span key={cat}>{i > 0 && " · "}<a href={`#${catId(cat)}`} onClick={() => setView("shop")}>{cat}</a></span>)}</nav>
         {customer
           ? <button className="ghost account-btn" onClick={() => setView("account")}>Hi, {customer.firstName}</button>
           : <button className="ghost account-btn" onClick={() => setAuth("signin")}>Sign in</button>}
@@ -169,14 +172,21 @@ function Store() {
               <button className="ghost" onClick={() => { localStorage.clear(); sessionStorage.clear(); location.reload(); }}>Reset as new visitor</button>
             )}
           </section>
-          <main className="grid">
-            {products.map((p) => (
-              <article key={p.title}>
-                <div className="img" style={{ background: SWATCH[p.productType] ?? "#334155" }}>{p.productType}</div>
-                <h3>{p.title}</h3>
-                <div className="price">{usd(p.priceCents)}</div>
-                <button onClick={() => setCart((c) => ({ ...c, [p.title]: (c[p.title] ?? 0) + 1 }))}>Add to cart</button>
-              </article>
+          <main className="catalogue">
+            {categories.map((cat) => (
+              <section key={cat} id={catId(cat)} className="category">
+                <h2>{cat}</h2>
+                <div className="grid">
+                  {products.filter((p) => p.productType === cat).map((p) => (
+                    <article key={p.title}>
+                      <div className="img" style={{ background: SWATCH[p.productType] ?? "#334155" }}>{p.productType}</div>
+                      <h3>{p.title}</h3>
+                      <div className="price">{usd(p.priceCents)}</div>
+                      <button onClick={() => setCart((c) => ({ ...c, [p.title]: (c[p.title] ?? 0) + 1 }))}>Add to cart</button>
+                    </article>
+                  ))}
+                </div>
+              </section>
             ))}
           </main>
         </>
