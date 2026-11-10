@@ -177,6 +177,12 @@ The dashboard asks for the admin token the first time it's opened on a deploymen
 
 After that, `gcloud builds submit --config cloudbuild.yaml --substitutions=_TAG=$(git rev-parse --short HEAD)` rebuilds and redeploys both services.
 
+### Network layout
+
+![GCP network layout](docs/architecture/gcp-network.png)
+
+Cloud SQL and Redis have private IPs only. Both run in a Google-managed network that is peered with `popup-vpc` through a reserved /16 range (Private Services Access). Cloud Run runs outside the VPC and joins it through the `popup-run` subnet using Direct VPC egress. With `PRIVATE_RANGES_ONLY`, only traffic to private `10.x` addresses goes through the VPC. Pub/Sub, Secret Manager and Vertex AI are public Google APIs secured by IAM, so Cloud Run calls them directly.
+
 **Agents on GCP** use Claude on Vertex AI. New projects usually start with no quota for Claude models, so agent runs fail with a 429 until you request an increase (Console → IAM & Admin → Quotas, `global_online_prediction_requests_per_base_model` for `anthropic-claude-opus`). Until then, set `llm_provider = "offline"` in `terraform.tfvars` and apply; the agents run their built-in rules, as they do locally.
 
 **Cost:** the defaults (HA Cloud SQL, Standard HA Redis, two warm API instances) are sized for production. For a demo, set `api_min_instances = 0`, `db_high_availability = false` and `deletion_protection = false`, and tear down afterwards:
@@ -184,6 +190,8 @@ After that, `gcloud builds submit --config cloudbuild.yaml --substitutions=_TAG=
 ```bash
 terraform -chdir=infra/terraform destroy -var project_id=<project-id> -var deletion_protection=false
 ```
+
+The last network resources can fail to delete at first: the subnet stays in use until Cloud Run releases its IP (1–2 hours), and the peering stays in use for a while after Cloud SQL is deleted. They cost nothing; run `destroy` again later.
 
 ## Design decisions worth discussing
 
